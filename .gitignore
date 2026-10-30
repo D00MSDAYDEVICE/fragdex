@@ -1,0 +1,9 @@
+.env
+.dev/
+*.fdx
+fragdex-scan-state.json
+certs/*.pem
+__pycache__/
+*.pyc
+.pytest_cache/
+site/

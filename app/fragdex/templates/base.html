@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Players{% endblock %} · Fragdex</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/static/fonts/ChakraPetch-600-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/app.css?v={{ version }}">
+<script src="/static/theme.js?v={{ version }}"></script>
+</head>
+<body>
+{% include "_icons.html" %}
+{% if user %}
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/">
+      <span class="brand-mark"><svg class="i"><use href="#i-crosshair"/></svg></span>
+      <span class="brand-text"><span class="brand-name">Fragdex</span><small>Quake Live player index</small></span>
+    </a>
+    <nav class="nav">
+      <a href="/" class="{{ 'active' if nav == 'players' }}"><svg class="i"><use href="#i-users"/></svg><span>Players</span></a>
+      {% if has_role(user, 'editor') %}
+      <a href="/add" class="{{ 'active' if nav == 'add' }}"><svg class="i"><use href="#i-plus"/></svg><span>Add</span></a>
+      <a href="/import" class="{{ 'active' if nav == 'import' }}"><svg class="i"><use href="#i-upload"/></svg><span>Import</span></a>
+      <a href="/tags" class="{{ 'active' if nav == 'tags' }}"><svg class="i"><use href="#i-tag"/></svg><span>Tags</span></a>
+      {% endif %}
+      {% if has_role(user, 'admin') %}
+      <a href="/admin/users" class="{{ 'active' if nav == 'users' }}"><svg class="i"><use href="#i-user"/></svg><span>Users</span></a>
+      <a href="/admin/settings" class="{{ 'active' if nav == 'settings' }}"><svg class="i"><use href="#i-gear"/></svg><span>Settings</span></a>
+      {% endif %}
+    </nav>
+    <div class="top-actions">
+      <a class="whoami" href="/account" title="Account"><span class="name">{{ user.username }}</span><span class="role">{{ user.role }}</span></a>
+      <form class="inline" method="post" action="/logout">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="icon-box" type="submit" title="Log out"><svg class="i"><use href="#i-logout"/></svg></button>
+      </form>
+      <button class="theme-switch" type="button" data-theme-toggle title="Toggle light/dark" aria-label="Toggle light/dark theme"><svg class="i"><use href="#i-sun"/></svg></button>
+    </div>
+  </div>
+</header>
+{% endif %}
+{% block body %}
+<main>
+  {% for level, msg in flashes %}
+  <div class="flash flash-{{ level }}">{{ msg }}</div>
+  {% endfor %}
+  {% block content %}{% endblock %}
+</main>
+{% endblock %}
+{% if user %}
+<footer class="footer"><strong>FRAGDEX</strong><span class="sep"></span>v{{ version }}<span class="sep"></span>GPL-2.0-or-later</footer>
+{% endif %}
+<script src="/static/app.js?v={{ version }}"></script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+site_name: Fragdex Documentation
+site_description: Self-hosted, login-protected player database for Quake Live server administrators.
+site_url: https://d00msdaydevice.github.io/fragdex/
+repo_url: https://github.com/D00MSDAYDEVICE/fragdex
+repo_name: D00MSDAYDEVICE/fragdex
+edit_uri: edit/main/docs/
+copyright: Fragdex is free software, licensed under GPL-2.0-or-later.
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  font: false            # system UI text; headings and code use the app's bundled fonts (extra.css)
+  palette:
+    - scheme: slate
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.instant
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.keys
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - What Is Fragdex?: getting-started/introduction.md
+      - Installation: getting-started/installation.md
+      - First Login And Import: getting-started/first-steps.md
+  - Using Fragdex:
+      - Search And Filter Players: guide/search.md
+      - Player Profile: guide/player-profile.md
+      - Linked Accounts: guide/linked-accounts.md
+      - Tags And Notes: guide/tags-and-notes.md
+      - Add Records Manually: guide/add-records.md
+      - Export CSV And .fdx: guide/export.md
+  - Importing Data:
+      - Import Page And Watched Folder: importing/overview.md
+      - Supported Sources: importing/sources.md
+      - fragdex-scan Desktop Tool: importing/fragdex-scan.md
+      - The .fdx Format: importing/fdx-format.md
+  - Administration:
+      - Users And Roles: administration/users.md
+      - Steam Web API: administration/steam.md
+      - Settings And .env Reference: administration/settings.md
+      - HTTPS And Ports: administration/https.md
+      - Updating: administration/updating.md
+      - Backup And Restore: administration/backup-restore.md
+      - Security: administration/security.md
+  - Help:
+      - Troubleshooting: help/troubleshooting.md
+  - Project:
+      - Development: project/development.md
+      - License: project/license.md

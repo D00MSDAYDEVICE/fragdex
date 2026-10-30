@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+tests/
+tools/
+scanner-win/
+.pytest_cache/

@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Import{% endblock %}
+{% block content %}
+<div class="page-head" data-import-active="{{ active }}" data-import-last="{{ jobs[0].id if jobs else '' }}">
+  <div>
+    <h1>Import</h1>
+    <p>Upload demos, server/chat logs, spreadsheets or fragdex-scan exports. Files are processed in the background.</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="stack">
+  <section class="panel">
+    <div class="panel-head"><h2>Upload files</h2></div>
+    <div class="panel-body">
+      <form method="post" action="/import" enctype="multipart/form-data">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="dropzone" tabindex="0" role="button" aria-label="Choose files to upload">
+          <svg class="i"><use href="#i-upload"/></svg>
+          <strong data-files-label data-default="Drop files here or click to browse">Drop files here or click to browse</strong>
+          <span class="muted">.fdx scanner exports · .dm_91 demos · .log / .txt logs · .xlsx / .csv sheets · .zip archives — up to {{ max_mb }} MB per upload</span>
+          <input type="file" name="files" multiple accept=".fdx,.dm_91,.dm_90,.dm_73,.log,.txt,.xlsx,.xlsm,.csv,.zip">
+        </div>
+        <div class="form-actions"><button class="btn btn-primary" type="submit" data-upload-submit disabled><svg class="i"><use href="#i-upload"/></svg>Upload &amp; import</button></div>
+      </form>
+    </div>
+  </section>
+  </div>
+
+  <div class="stack">
+  <section class="panel">
+    <div class="panel-head"><h2>Desktop scanner</h2><span class="badge badge-ok">Recommended for big collections</span></div>
+    <div class="panel-body">
+      <p class="muted" style="margin-top:0">Index demos on your own PC and upload only the result. Typically about <strong style="color:var(--text)">1/10,000th</strong> the size of the demos: thousands of demos become one small <code>.fdx</code> file.</p>
+      <ol class="formats steps">
+        <li><strong>Download</strong>
+          <div class="head-actions" style="margin-top:8px">
+            {% if scanner_exe %}<a class="btn btn-primary btn-sm" href="/download/fragdex-scan.exe"><svg class="i"><use href="#i-download"/></svg>Windows (.exe)</a>{% endif %}
+            <a class="btn btn-sm {{ 'btn-primary' if not scanner_exe }}" href="/download/fragdex-scan.py"><svg class="i"><use href="#i-download"/></svg>Python script (any OS)</a>
+          </div>
+        </li>
+        <li><strong>Run it</strong>: {% if scanner_exe %}open the .exe (69 KB, no install). Your Quake Live demo folders are listed already; <em>Add folders…</em> adds more, then choose <em>Export to</em> and press <em>Process</em>. Or {% endif %}run <code>python fragdex-scan.py</code>: with no arguments it scans <code>C:\demos</code> / <code>/home/demos</code>, <code>~/demos</code> and every Steam library's Quake Live demo folders (including demos inside .zip files), or name folders: <code>fragdex-scan "D:\path\to\demos"</code>.</li>
+        <li><strong>Upload</strong> the <code>fragdex-&lt;date&gt;.fdx</code> it creates here. Run it again later and it only exports new demos.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Watched folder</h2></div>
+    <div class="panel-body">
+      <dl class="kv">
+        <dt>Container path</dt><dd><code>{{ watch_dir }}</code></dd>
+        <dt>Status</dt><dd>{% if watch_exists %}<span class="status status-done">Active</span>{% else %}<span class="status status-error">Not mounted</span>{% endif %}</dd>
+        <dt>Files tracked</dt><dd>{{ watched }}</dd>
+        <dt>Last scan</dt><dd>{{ wstatus.watch_last_scan or '—' }}{% if wstatus.watch_last_scan %} UTC{% endif %}</dd>
+      </dl>
+      {% if wstatus.watch_error %}<div class="flash flash-error" style="margin-top:12px">{{ wstatus.watch_error }}</div>{% endif %}
+      <p class="muted" style="margin:12px 0 0;font-size:13px">Drop files into the host folder set by <code>HOST_WATCH_DIR</code> in <code>.env</code> (default <code>/home/demos</code> on Linux, <code>C:\demos</code> on Windows). New demos, sheets and .fdx exports are imported once; log files are followed and only new lines are read.</p>
+    </div>
+  </section>
+  </div>
+</div>
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-head">
+    <h2>History</h2>
+    <div style="display:flex;gap:10px;align-items:center">
+      {% for s in ('queued','running','done','error','duplicate') if counts.get(s) %}<span class="status status-{{ s }}">{{ counts[s] }} {{ s }}</span>{% endfor %}
+      {% if counts.get('done') or counts.get('duplicate') %}
+      <form class="inline" method="post" action="/import/clear" data-confirm="Remove finished entries from this list? Imported player data is kept.">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn btn-sm btn-ghost" type="submit">Clear finished</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="scroll-x">
+  <table class="dtable">
+    <thead><tr><th>#</th><th>File</th><th>Type</th><th>Status</th><th class="num">Players</th><th class="num">New records</th><th>Details</th><th>When</th><th></th></tr></thead>
+    <tbody>
+    {% for j in jobs %}
+      <tr>
+        <td class="muted">{{ j.id }}</td>
+        <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ j.filename }}"><svg class="i faint"><use href="#i-{{ 'folder' if j.origin == 'watch' else 'file' }}"/></svg> {{ j.filename }}</td>
+        <td><span class="src src-{{ j.kind }}">{{ j.kind }}</span></td>
+        <td><span class="status status-{{ j.status }}">{{ j.status }}</span></td>
+        <td class="num">{{ j.players if j.status == 'done' else '' }}</td>
+        <td class="num">{{ j.sightings if j.status == 'done' else '' }}</td>
+        <td class="muted" style="font-size:12.5px;max-width:420px">{{ j.message }}</td>
+        <td class="nowrap muted" style="font-size:12px">{{ j.created_at[5:16] }}<br><span class="faint">{{ j.created_by }}</span></td>
+        <td>{% if j.status == 'error' %}
+          <form class="inline" method="post" action="/import/{{ j.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn btn-sm" type="submit">Retry</button></form>
+        {% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="9" class="muted" style="padding:24px 14px">Nothing imported yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="panel" style="margin-top:16px">
+  <div class="panel-head"><h2>What gets imported</h2></div>
+  <div class="panel-body">
+    <ul class="formats">
+      <li><strong>.fdx files</strong> — the desktop scanner's output (names and Steam IDs from many demos at once; demos already imported by either route are skipped), or a full-history <em>Export .fdx</em> from the Players page of any Fragdex server, including its notes and tags.</li>
+      <li><strong>Demos (.dm_91)</strong> — every player name + Steam ID in the demo's configstrings, including players who join or rename mid-match. Dated by the match start time. Demos contain no IP addresses.</li>
+      <li><strong>minqlx chat logs</strong> — connect lines like <code>[2026-10-29 19:27:35] Name:76561197960287930:203.0.113.45 connected.</code></li>
+      <li><strong>Server logs</strong> — lines with an info string (<code>n\Name\…\st\7656…</code>, <code>\ip\…</code>), or any line with exactly one Steam ID and one IP. Lines without a timestamp use the file's modified time.</li>
+      <li><strong>Spreadsheets (.xlsx / .csv)</strong> — columns matched by header: Player Name, Steam ID, Aliases, IP Address, Date. Steam IDs stored as numbers (e.g. <code>7.65611980147868E+16</code>) have lost digits and are skipped.</li>
+      <li>Re-importing the same file is detected and skipped; identical records are never duplicated.</li>
+    </ul>
+  </div>
+</section>
+{% endblock %}

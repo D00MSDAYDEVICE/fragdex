@@ -1,0 +1,4 @@
+*.sh text eol=lf
+*.exe binary
+*.woff2 binary
+* text=auto

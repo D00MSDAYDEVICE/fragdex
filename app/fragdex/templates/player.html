@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}{{ p.last_name|clean or p.steam_id }}{% endblock %}
+{% block content %}
+<a class="btn btn-ghost btn-sm" href="/" style="margin-bottom:10px"><svg class="i"><use href="#i-arrow-left"/></svg>All players</a>
+
+<section class="panel player-hero">
+  {% if p.steam_avatar %}<img class="avatar" src="{{ p.steam_avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="avatar">{{ (p.last_name|clean or '?')[:1]|upper }}</span>{% endif %}
+  <div style="min-width:0">
+    <h1>{{ p.last_name|qlname }}</h1>
+    <div class="hero-meta">
+      <span class="sid">
+        <a class="steam-link" href="{{ steam_url(p.steam_id) }}" target="_blank" rel="noopener noreferrer" title="Open Steam profile"><svg class="i"><use href="#i-steam"/></svg></a>
+        <code>{{ p.steam_id }}</code>
+        <button class="icon-btn" style="width:26px;height:26px" data-copy="{{ p.steam_id }}" title="Copy Steam ID"><svg class="i" style="width:14px;height:14px"><use href="#i-copy"/></svg></button>
+      </span>
+      {% if p.steam_persona %}<span title="Current Steam persona name">Steam: <strong>{{ p.steam_persona }}</strong></span>{% endif %}
+      {% if p.vac_bans %}<span class="badge badge-ban badge-plain"><svg class="i" style="width:12px;height:12px"><use href="#i-shield"/></svg>{{ p.vac_bans }} VAC</span>{% endif %}
+      {% if p.game_bans %}<span class="badge badge-ban">{{ p.game_bans }} game ban{{ 's' if p.game_bans > 1 }}</span>{% endif %}
+      {% if p.community_banned %}<span class="badge badge-ban">Community banned</span>{% endif %}
+      {% if p.steam_checked_at and not p.vac_bans and not p.game_bans and not p.community_banned %}<span class="badge badge-ok">No Steam bans</span>{% endif %}
+      {% for t in tags if t.on_player %}<span class="tag" style="--tag: {{ t.color }}">{{ t.name }}</span>{% endfor %}
+    </div>
+  </div>
+  <div class="hero-actions">
+    {% if steam_enabled and has_role(user, 'editor') %}
+    <form class="inline" method="post" action="/player/{{ p.steam_id }}/steam">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn btn-sm btn-blue" type="submit"><svg class="i"><use href="#i-refresh"/></svg>Refresh Steam</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+<div class="player-grid">
+  <div class="stack">
+    <section class="panel">
+      <div class="panel-head"><h2>Names ({{ names|length }})</h2></div>
+      <div class="scroll-x">
+      <table class="dtable">
+        <thead><tr><th>Name</th><th>First seen</th><th>Last seen</th><th class="num">Seen</th><th>Sources</th></tr></thead>
+        <tbody>
+        {% for n in names %}
+          <tr>
+            <td>{{ n.name|qlname }}{% if loop.first %} <span class="badge">latest</span>{% endif %}</td>
+            <td class="nowrap muted">{{ n.first[:10] if n.first else '—' }}</td>
+            <td class="nowrap muted">{{ n.last[:10] if n.last else '—' }}</td>
+            <td class="num">{{ n.n }}</td>
+            <td>{% for s in (n.sources or '').split(',') if s %}<span class="src src-{{ s }}">{{ s }}</span> {% endfor %}</td>
+          </tr>
+        {% else %}<tr><td colspan="5" class="muted">No names recorded.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>IP addresses ({{ ips|length }})</h2><span class="muted" style="font-size:12px">Hide IPs{% include "_ip_toggle.html" %}</span></div>
+      <div class="scroll-x">
+      <table class="dtable">
+        <thead><tr><th>IP</th><th>First seen</th><th>Last seen</th><th class="num">Seen</th><th>Other accounts</th><th>Sources</th></tr></thead>
+        <tbody>
+        {% for x in ips %}
+          <tr>
+            <td class="ip">{{ x.ip }}</td>
+            <td class="nowrap muted">{{ x.first[:10] if x.first else '—' }}</td>
+            <td class="nowrap muted">{{ x.last[:10] if x.last else '—' }}</td>
+            <td class="num">{{ x.n }}</td>
+            <td>{% if x.others %}<a href="/?q={{ x.ip|urlencode }}" class="{{ 'faint' if alt_limit and x.others >= alt_limit }}" title="{% if alt_limit and x.others >= alt_limit %}Shared by many accounts - likely a VPN or shared connection, ignored for linking{% else %}Show everyone on this IP{% endif %}">{{ x.others }} other{{ 's' if x.others > 1 }}</a>{% else %}<span class="faint">—</span>{% endif %}</td>
+            <td>{% for s in (x.sources or '').split(',') if s %}<span class="src src-{{ s }}">{{ s }}</span> {% endfor %}</td>
+          </tr>
+        {% else %}<tr><td colspan="6" class="muted">No IP addresses recorded.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="panel" id="linked">
+      <div class="panel-head"><h2>Linked accounts ({{ linked|length }})</h2><span class="muted" style="font-size:12px">Other Steam IDs seen on the same IP address</span></div>
+      <div class="scroll-x">
+      <table class="dtable">
+        <thead><tr><th>Player</th><th>Steam ID</th><th>Shared IPs</th><th>Last seen</th></tr></thead>
+        <tbody>
+        {% for a in linked %}
+          <tr>
+            <td><a href="/player/{{ a.steam_id }}">{{ a.last_name|qlname }}</a>{% if a.vac_bans or a.game_bans %} <span class="badge badge-ban">BAN</span>{% endif %}</td>
+            <td><span class="sid"><a class="steam-link" href="{{ steam_url(a.steam_id) }}" target="_blank" rel="noopener noreferrer" title="Open Steam profile"><svg class="i"><use href="#i-steam"/></svg></a><code>{{ a.steam_id }}</code></span></td>
+            <td class="ip">{{ a.shared_ips.replace(',', ', ') }}</td>
+            <td class="nowrap muted">{{ a.last_seen[:10] if a.last_seen else '—' }}</td>
+          </tr>
+        {% else %}<tr><td colspan="4" class="muted">No other accounts share an IP with this player.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>All records ({{ sighting_total }})</h2>{% if sighting_total > sightings|length %}<span class="muted" style="font-size:12px">showing latest {{ sightings|length }}</span>{% endif %}</div>
+      <div class="scroll-x">
+      <table class="dtable">
+        <thead><tr><th>Date</th><th>Name</th><th>IP{% include "_ip_toggle.html" %}</th><th>Source</th><th>From</th>{% if has_role(user, 'editor') %}<th></th>{% endif %}</tr></thead>
+        <tbody>
+        {% for s in sightings %}
+          <tr>
+            <td class="nowrap muted">{{ s.seen_at or 'undated' }}</td>
+            <td>{% if s.name %}{{ s.name|qlname }}{% else %}<span class="faint">—</span>{% endif %}</td>
+            <td class="ip">{{ s.ip or '' }}</td>
+            <td><span class="src src-{{ s.source }}">{{ s.source }}</span></td>
+            <td class="muted" style="font-size:12px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ s.source_ref }}{% if s.server %} · {{ s.server }}{% endif %}">{{ s.source_ref }}{% if s.server %} · {{ s.server }}{% endif %}</td>
+            {% if has_role(user, 'editor') %}
+            <td class="num">
+              <form class="inline" method="post" action="/sightings/{{ s.id }}/delete" data-confirm="Delete this record?">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="icon-btn" style="width:26px;height:26px" type="submit" title="Delete record"><svg class="i" style="width:14px;height:14px"><use href="#i-trash"/></svg></button>
+              </form>
+            </td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </section>
+  </div>
+
+  <aside class="stack">
+    <section class="panel">
+      <div class="panel-head"><h2>Summary</h2></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>First seen</dt><dd>{{ p.first_seen or '—' }}</dd>
+          <dt>Last seen</dt><dd>{{ p.last_seen or '—' }}</dd>
+          <dt>Latest IP</dt>{% if p.last_ip %}<dd class="ip">{{ p.last_ip }}</dd>{% else %}<dd>—</dd>{% endif %}
+          <dt>Names</dt><dd>{{ p.name_count }}</dd>
+          <dt>IP addresses</dt><dd>{{ p.ip_count }}</dd>
+          <dt>Linked accounts</dt><dd>{{ p.alt_count }}</dd>
+          {% if p.steam_checked_at %}
+          <dt>Steam profile</dt><dd>{{ 'Public' if p.steam_visibility == 3 else ('Private' if p.steam_visibility else 'Not found') }}</dd>
+          {% if p.days_since_last_ban and (p.vac_bans or p.game_bans) %}<dt>Last ban</dt><dd>{{ p.days_since_last_ban }} days ago</dd>{% endif %}
+          <dt>Steam checked</dt><dd>{{ p.steam_checked_at[:16] }} UTC</dd>
+          {% endif %}
+        </dl>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Tags</h2></div>
+      <div class="panel-body">
+        {% if has_role(user, 'editor') %}
+        <form method="post" action="/player/{{ p.steam_id }}/tags">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          {% if tags %}
+          <div class="tagpick">
+            {% for t in tags %}<label><input type="checkbox" name="tag" value="{{ t.id }}" {{ 'checked' if t.on_player }}><span class="tag" style="--tag: {{ t.color }}">{{ t.name }}</span></label>{% endfor %}
+          </div>
+          {% endif %}
+          <div style="display:flex;gap:8px">
+            <input type="text" name="new_tag" placeholder="New tag…" maxlength="40" style="flex:1">
+            <button class="btn" type="submit">Save</button>
+          </div>
+        </form>
+        {% else %}
+          {% for t in tags if t.on_player %}<span class="tag" style="--tag: {{ t.color }}">{{ t.name }}</span> {% else %}<span class="muted">No tags.</span>{% endfor %}
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Notes</h2></div>
+      <div class="panel-body">
+        {% if has_role(user, 'editor') %}
+        <form method="post" action="/player/{{ p.steam_id }}/notes">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <textarea name="notes" rows="6" placeholder="Bans, reports, context…">{{ p.notes }}</textarea>
+          <div class="form-actions" style="margin-top:8px"><button class="btn" type="submit">Save notes</button></div>
+        </form>
+        {% else %}
+          <div style="white-space:pre-wrap">{{ p.notes or '' }}</div>{% if not p.notes %}<span class="muted">No notes.</span>{% endif %}
+        {% endif %}
+      </div>
+    </section>
+
+    {% if has_role(user, 'editor') %}
+    <section class="panel">
+      <div class="panel-head"><h2>Add record</h2></div>
+      <div class="panel-body">
+        <form method="post" action="/player/{{ p.steam_id }}/sightings">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <div class="field"><label for="a-name">Name</label><input id="a-name" type="text" name="name" maxlength="64" placeholder="e.g. ^1sl^7ug"></div>
+          <div class="field" style="margin-top:10px"><label for="a-ip">IP address</label><input id="a-ip" type="text" name="ip" placeholder="optional"></div>
+          <div class="field" style="margin-top:10px"><label for="a-date">Seen at</label><input id="a-date" type="datetime-local" name="seen_at"></div>
+          <div class="form-actions" style="margin-top:12px"><button class="btn" type="submit"><svg class="i"><use href="#i-plus"/></svg>Add</button></div>
+        </form>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if has_role(user, 'admin') %}
+    <section class="panel">
+      <div class="panel-head"><h2>Danger zone</h2></div>
+      <div class="panel-body">
+        <form method="post" action="/player/{{ p.steam_id }}/delete" data-confirm="Permanently delete this player and all {{ sighting_total }} records?">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn btn-danger" type="submit"><svg class="i"><use href="#i-trash"/></svg>Delete player</button>
+        </form>
+      </div>
+    </section>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

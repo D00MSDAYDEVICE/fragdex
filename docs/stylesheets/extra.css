@@ -1,0 +1,257 @@
+/* Fragdex documentation theme: the app's own colours (app/fragdex/static/app.css) and fonts. */
+@font-face { font-family: "Chakra Petch"; font-weight: 500; font-display: swap;
+             src: url("../assets/fonts/ChakraPetch-500-latin.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 600; font-display: swap;
+             src: url("../assets/fonts/ChakraPetch-600-latin.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 700; font-display: swap;
+             src: url("../assets/fonts/ChakraPetch-700-latin.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 100 800; font-display: swap;
+             src: url("../assets/fonts/JetBrainsMono-latin.woff2") format("woff2"); }
+
+:root {
+  --md-text-font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --md-code-font-family: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --fx-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+}
+
+[data-md-color-scheme="slate"] {
+  --fx-bg: #0b0f14;
+  --fx-bg-2: #0e141b;
+  --fx-grid: rgba(148, 163, 184, .035);
+  --fx-panel: #10171f;
+  --fx-panel-2: #151e28;
+  --fx-border: #212b37;
+  --fx-border-2: #2c3846;
+  --fx-text: #e6edf3;
+  --fx-muted: #8794a5;
+  --fx-faint: #5a6676;
+  --fx-accent: #1ff2a2;
+  --fx-accent-ink: #04150e;
+  --fx-accent-text: #34e39a;
+  --fx-accent-soft: rgba(31, 242, 162, .09);
+  --fx-accent-line: rgba(31, 242, 162, .28);
+  --fx-link: #4d8dff;
+
+  --md-hue: 210;
+  --md-default-bg-color: var(--fx-bg);
+  --md-default-fg-color: var(--fx-text);
+  --md-default-fg-color--light: var(--fx-muted);
+  --md-default-fg-color--lighter: var(--fx-faint);
+  --md-default-fg-color--lightest: rgba(230, 237, 243, .07);
+  --md-primary-fg-color: var(--fx-bg-2);
+  --md-primary-bg-color: var(--fx-text);
+  --md-accent-fg-color: var(--fx-accent);
+  --md-accent-fg-color--transparent: var(--fx-accent-soft);
+  --md-typeset-a-color: var(--fx-link);
+  --md-code-bg-color: var(--fx-panel);
+  --md-code-fg-color: var(--fx-text);
+  --md-footer-bg-color: var(--fx-bg-2);
+  --md-footer-bg-color--dark: var(--fx-bg);
+}
+
+[data-md-color-scheme="default"] {
+  --fx-bg: #f2f5f8;
+  --fx-bg-2: #ffffff;
+  --fx-grid: rgba(15, 23, 42, .04);
+  --fx-panel: #ffffff;
+  --fx-panel-2: #f5f7fa;
+  --fx-border: #dde3ea;
+  --fx-border-2: #c9d2dc;
+  --fx-text: #111827;
+  --fx-muted: #5d6b7c;
+  --fx-faint: #95a1b0;
+  --fx-accent: #10c784;
+  --fx-accent-ink: #03140d;
+  --fx-accent-text: #058a59;
+  --fx-accent-soft: rgba(16, 199, 132, .1);
+  --fx-accent-line: rgba(5, 138, 89, .3);
+  --fx-link: #2563eb;
+
+  --md-default-bg-color: var(--fx-bg);
+  --md-default-fg-color: var(--fx-text);
+  --md-default-fg-color--light: var(--fx-muted);
+  --md-default-fg-color--lighter: var(--fx-faint);
+  --md-primary-fg-color: var(--fx-bg-2);
+  --md-primary-bg-color: var(--fx-text);
+  --md-accent-fg-color: var(--fx-accent-text);
+  --md-accent-fg-color--transparent: var(--fx-accent-soft);
+  --md-typeset-a-color: var(--fx-link);
+  --md-code-bg-color: var(--fx-panel-2);
+  --md-code-fg-color: var(--fx-text);
+  --md-footer-bg-color: var(--fx-bg-2);
+  --md-footer-fg-color: var(--fx-text);
+  --md-footer-fg-color--light: var(--fx-muted);
+  --md-footer-fg-color--lighter: var(--fx-faint);
+  --md-footer-bg-color--dark: var(--fx-panel-2);
+}
+
+/* Page background: the app's faint grid */
+body {
+  background-color: var(--fx-bg);
+  background-image:
+    linear-gradient(var(--fx-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--fx-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+.md-main, .md-container { background: transparent; }
+
+/* Header */
+.md-header {
+  background: var(--fx-bg-2);
+  border-bottom: 1px solid var(--fx-border);
+  box-shadow: none;
+}
+.md-header[data-md-state="shadow"], .md-header--shadow { box-shadow: 0 1px 0 var(--fx-border); }
+.md-header__topic:first-child {
+  font-family: var(--fx-display);
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.md-search__form { background: var(--fx-panel-2); border: 1px solid var(--fx-border); border-radius: .4rem; }
+
+/* Sidebar */
+.md-nav--primary .md-nav__item--section > .md-nav__link {
+  font-family: var(--fx-display);
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--fx-faint);
+  margin-top: .6rem;
+}
+.md-nav__link {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: .35rem;
+  margin: 1px 4px;
+  padding: .26rem .6rem .26rem .8rem;
+  color: var(--fx-muted);
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+.md-nav__link:hover { color: var(--fx-text); background: var(--fx-panel-2); border-color: var(--fx-border); }
+.md-nav__link--active, .md-nav__link--active:hover {
+  color: var(--fx-accent-text) !important;
+  font-weight: 600;
+  background: linear-gradient(90deg, var(--fx-accent-soft), transparent 75%);
+  border-color: var(--fx-accent-line);
+}
+.md-nav__link--active::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 20%; bottom: 20%;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--fx-accent);
+}
+.md-nav--primary .md-nav__item--section > .md-nav__link:hover { background: none; border-color: transparent; }
+
+/* Headings */
+.md-typeset h1, .md-typeset h2, .md-typeset h3, .md-typeset h4 {
+  font-family: var(--fx-display);
+  letter-spacing: .03em;
+  line-height: 1.2;
+  color: var(--fx-text);
+}
+.md-typeset h1 { font-size: 1.9rem; font-weight: 700; text-transform: uppercase; }
+.md-typeset h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--fx-border);
+  padding-bottom: .3rem;
+}
+.md-typeset h3 { font-size: 1.1rem; font-weight: 600; }
+.md-typeset h4 { font-size: 1rem; font-weight: 600; }
+.md-typeset .headerlink:hover, .md-typeset [id]:target .headerlink { color: var(--fx-accent-text); }
+
+/* Code */
+.md-typeset code { font-size: .86em; }
+.md-typeset :not(pre) > code {
+  background: var(--fx-panel-2);
+  border: 1px solid var(--fx-border);
+  border-radius: .3rem;
+  padding: .05rem .35rem;
+}
+.md-typeset pre > code { border: 1px solid var(--fx-border); border-radius: .5rem; }
+
+/* Tables */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--fx-border);
+  border-radius: .5rem;
+  overflow: hidden;
+  font-size: .72rem;
+}
+.md-typeset table:not([class]) th {
+  background: var(--fx-panel-2);
+  font-family: var(--fx-display);
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--fx-muted);
+}
+.md-typeset table:not([class]) td { border-top: 1px solid var(--fx-border); }
+.md-typeset table:not([class]) td:first-child { white-space: nowrap; }
+
+/* Admonitions */
+.md-typeset .admonition, .md-typeset details {
+  background: var(--fx-panel);
+  border-width: 1px;
+  border-left-width: 3px;
+  border-radius: .45rem;
+  box-shadow: none;
+}
+
+/* Keyboard keys and buttons named in the text */
+.md-typeset kbd { font-family: var(--md-code-font-family); }
+
+/* Screenshots */
+.md-typeset img.shot {
+  display: block;
+  border: 1px solid var(--fx-border-2);
+  border-radius: .6rem;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .35);
+}
+
+/* Home page cards */
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  background: var(--fx-panel);
+  border: 1px solid var(--fx-border);
+  border-radius: .55rem;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid > .card:hover {
+  border-color: var(--fx-accent-line);
+  box-shadow: 0 0 0 1px var(--fx-accent-line);
+}
+.md-typeset .grid.cards .twemoji { color: var(--fx-accent-text); }
+.md-typeset .grid.cards hr { border-color: var(--fx-border); }
+
+/* Primary button, as in the app */
+.md-typeset .md-button {
+  border-radius: .4rem;
+  border-color: var(--fx-border-2);
+  color: var(--fx-text);
+  font-weight: 600;
+}
+.md-typeset .md-button--primary {
+  background: var(--fx-accent);
+  border-color: var(--fx-accent);
+  color: var(--fx-accent-ink);
+}
+.md-typeset .md-button:hover, .md-typeset .md-button:focus {
+  background: var(--fx-accent-soft);
+  border-color: var(--fx-accent);
+  color: var(--fx-text);
+}
+.md-typeset .md-button--primary:hover, .md-typeset .md-button--primary:focus {
+  background: var(--fx-accent-text);
+  border-color: var(--fx-accent-text);
+  color: var(--fx-accent-ink);
+}
+
+/* Quake colour codes in example names */
+.q1 { color: #ff4d4f; } .q2 { color: #3ee07f; } .q3 { color: #f7dc4a; }
+.q4 { color: #5b8dff; } .q5 { color: #3fd8e8; } .q6 { color: #e15ae1; }

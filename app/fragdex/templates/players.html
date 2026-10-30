@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Players{% endblock %}
+{% macro sort_th(key, label, cls="") -%}
+  {%- set is_cur = f.sort == key or (not f.sort and key == 'last_seen') -%}
+  {%- set cur_dir = f.dir or ('asc' if key in ('name', 'steam_id') else 'desc') -%}
+  {%- set next_dir = ('desc' if cur_dir == 'asc' else 'asc') if is_cur else ('asc' if key in ('name', 'steam_id') else 'desc') -%}
+  <th class="{{ cls }}"><a href="?{{ filter_qs(f, sort=key, dir=next_dir, page=None) }}{{ '&per=' ~ per if per != 50 }}" class="{{ 'sorted' if is_cur }}">{{ label }}{% if is_cur %} {{ '▲' if cur_dir == 'asc' else '▼' }}{% endif %}</a></th>
+{%- endmacro %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Players</h1>
+    <div class="statline">
+      <span><i class="dot dot-blue"></i><strong>{{ "{:,}".format(stats.players) }}</strong>Players</span>
+      <span><i class="dot"></i><strong>{{ "{:,}".format(stats.sightings) }}</strong>Records</span>
+      {% if stats.active_imports %}<span><i class="dot dot-amber"></i><strong>{{ stats.active_imports }}</strong><a href="/import">Importing</a></span>{% endif %}
+    </div>
+  </div>
+  <div class="head-actions">
+    <a class="btn" href="/export.csv?{{ filter_qs(f) }}" title="One summary row per player, for spreadsheets"><svg class="i"><use href="#i-download"/></svg>Export CSV</a>
+    <a class="btn" href="/export.fdx?{{ filter_qs(f) }}" title="Full history (every name, IP and date, plus notes and tags), compressed; any Fragdex server can re-import it"><svg class="i"><use href="#i-download"/></svg>Export .fdx</a>
+    {% if has_role(user, 'editor') %}<a class="btn btn-primary" href="/import"><svg class="i"><use href="#i-plus"/></svg>Import Data</a>{% endif %}
+  </div>
+</div>
+
+<form class="panel filters" method="get" action="/">
+  <div class="search-row">
+    <div class="search-box">
+      <svg class="i"><use href="#i-search"/></svg>
+      <input type="search" name="q" value="{{ f.q }}" placeholder="Search name, alias, Steam ID, IP or CIDR (1.2.3.0/24), notes…" autofocus>
+    </div>
+    <button class="btn btn-primary" type="submit">Search</button>
+    {% if filters_active %}<a class="btn btn-ghost" href="/"><svg class="i"><use href="#i-x"/></svg>Clear</a>{% endif %}
+  </div>
+  <div class="filter-row">
+    <svg class="i faint"><use href="#i-filter"/></svg>
+    <select name="tag" data-autosubmit aria-label="Tag">
+      <option value="">All tags</option>
+      {% for t in tags %}<option value="{{ t.id }}" {{ 'selected' if f.tag == t.id|string }}>{{ t.name }}</option>{% endfor %}
+    </select>
+    <select name="source" data-autosubmit aria-label="Source">
+      <option value="">Any source</option>
+      {% for s in sources %}<option value="{{ s }}" {{ 'selected' if f.source == s }}>{{ s|upper if s in ('csv','xlsx') else s|capitalize }}</option>{% endfor %}
+    </select>
+    {% if steam_enabled %}
+    <select name="bans" data-autosubmit aria-label="Ban status">
+      <option value="">Any ban status</option>
+      <option value="vac" {{ 'selected' if f.bans == 'vac' }}>VAC banned</option>
+      <option value="any" {{ 'selected' if f.bans == 'any' }}>Any Steam ban</option>
+      <option value="clean" {{ 'selected' if f.bans == 'clean' }}>No bans</option>
+    </select>
+    {% endif %}
+    <span class="sep"></span>
+    <label class="check"><input type="checkbox" name="has_ip" value="1" data-autosubmit {{ 'checked' if f.has_ip }}>Has IP</label>
+    <label class="check"><input type="checkbox" name="has_alts" value="1" data-autosubmit {{ 'checked' if f.has_alts }}>Has linked accounts</label>
+    <span class="sep"></span>
+    <span class="daterange">Last seen
+      <input type="date" name="seen_from" value="{{ f.seen_from }}" aria-label="Last seen from">
+      to
+      <input type="date" name="seen_to" value="{{ f.seen_to }}" aria-label="Last seen to">
+    </span>
+    {% if f.sort %}<input type="hidden" name="sort" value="{{ f.sort }}">{% endif %}
+    {% if f.dir %}<input type="hidden" name="dir" value="{{ f.dir }}">{% endif %}
+    <select name="per" data-autosubmit aria-label="Per page" style="margin-left:auto">
+      {% for n in per_options %}<option value="{{ n }}" {{ 'selected' if per == n }}>{{ n }} / page</option>{% endfor %}
+    </select>
+  </div>
+</form>
+
+<div class="results-bar">
+  <div class="count">
+    {% if total %}Showing <strong>{{ (page - 1) * per + 1 }}–{{ [page * per, total]|min }}</strong> of <strong>{{ "{:,}".format(total) }}</strong> players{% else %}No results{% endif %}
+  </div>
+  <span class="ip-toggle-mobile">IPs{% include "_ip_toggle.html" %}</span>
+</div>
+
+<div class="panel">
+{% if players %}
+<table class="ptable">
+  <thead>
+    <tr>
+      {{ sort_th('name', 'Player') }}
+      {{ sort_th('steam_id', 'Steam ID') }}
+      <th>IP Address{% include "_ip_toggle.html" %}</th>
+      {% set by_aliases = f.sort == 'aliases' %}
+      <th>History<a class="th-toggle" href="?{{ filter_qs(f, sort=None if by_aliases else 'aliases', dir=None if by_aliases else 'desc', page=None) }}{{ '&per=' ~ per if per != 50 }}" aria-pressed="{{ 'true' if by_aliases else 'false' }}" title="{{ 'Back to newest first' if by_aliases else 'Sort by most aliases' }}" aria-label="Sort by most aliases"><svg class="i"><use href="#i-sort-desc"/></svg></a></th>
+      <th>Tags</th>
+      {{ sort_th('last_seen', 'Last seen') }}
+    </tr>
+  </thead>
+  <tbody>
+  {% for p in players %}
+    <tr>
+      <td class="c-name">
+        <div class="pname">
+          {% if p.steam_avatar %}<img class="avatar" src="{{ p.steam_avatar }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="avatar">{{ (p.last_name|clean or '?')[:1]|upper }}</span>{% endif %}
+          <div style="min-width:0">
+            <a class="namelink" href="/player/{{ p.steam_id }}">{{ p.last_name|qlname }}</a>
+            {% if p.steam_persona and p.steam_persona|lower != p.last_name|clean|lower %}<span class="persona" title="Current Steam name">Steam: {{ p.steam_persona }}</span>{% endif %}
+          </div>
+          {% if p.vac_bans or p.game_bans %}<span class="badge badge-ban badge-plain" title="{{ p.vac_bans or 0 }} VAC, {{ p.game_bans or 0 }} game bans{% if p.days_since_last_ban is not none %}; last {{ p.days_since_last_ban }} days ago{% endif %}"><svg class="i" style="width:12px;height:12px"><use href="#i-shield"/></svg>{{ 'VAC' if p.vac_bans else 'BAN' }}</span>{% endif %}
+        </div>
+      </td>
+      <td class="c-sid">
+        <span class="sid">
+          <a class="steam-link" href="{{ steam_url(p.steam_id) }}" target="_blank" rel="noopener noreferrer" title="Open Steam profile"><svg class="i"><use href="#i-steam"/></svg></a>
+          <code>{{ p.steam_id }}</code>
+        </span>
+      </td>
+      <td class="c-ip">{% if p.last_ip %}<span class="ip">{{ p.last_ip }}</span>{% else %}<span class="faint">—</span>{% endif %}</td>
+      <td class="c-icons">
+        <div class="icons">
+          {% set other_names = p.names|rejectattr('name', 'equalto', p.last_name)|list %}
+          <details class="pop">
+            <summary class="{{ 'empty' if not other_names }}" title="Previous names"><svg class="i"><use href="#i-names"/></svg>{{ other_names|length }}</summary>
+            <div class="pop-body">
+              <div class="pop-title">Other names used</div>
+              <ul class="pop-list">
+                {% for n in other_names[:25] %}<li><span>{{ n.name|qlname }}</span><span class="meta">{{ n.last[:10] if n.last else 'undated' }}{% if n.n > 1 %} · {{ n.n }}×{% endif %}</span></li>{% endfor %}
+              </ul>
+              {% if other_names|length > 25 %}<div class="pop-foot"><a href="/player/{{ p.steam_id }}">+{{ other_names|length - 25 }} more…</a></div>{% endif %}
+            </div>
+          </details>
+          <details class="pop">
+            <summary class="{{ 'empty' if not p.ips }}" title="IP history"><svg class="i"><use href="#i-ip"/></svg>{{ p.ips|length }}</summary>
+            <div class="pop-body">
+              <div class="pop-title">IP addresses</div>
+              <ul class="pop-list">
+                {% for x in p.ips[:25] %}<li><a class="ip" href="/?q={{ x.ip|urlencode }}" title="Find everyone on this IP">{{ x.ip }}</a><span class="meta">{% if x.last %}{{ x.first[:10] if x.first != x.last else '' }}{{ ' → ' if x.first and x.first != x.last }}{{ x.last[:10] }}{% else %}undated{% endif %}</span></li>{% endfor %}
+              </ul>
+              {% if p.ips|length > 25 %}<div class="pop-foot"><a href="/player/{{ p.steam_id }}">+{{ p.ips|length - 25 }} more…</a></div>{% endif %}
+            </div>
+          </details>
+          {% if p.alt_count %}
+          <a class="pill alert" href="/player/{{ p.steam_id }}#linked" title="Other Steam accounts seen on the same IP"><svg class="i"><use href="#i-link"/></svg>{{ p.alt_count }}</a>
+          {% endif %}
+        </div>
+      </td>
+      <td class="c-tags"><div class="tagcell">{% for t in p.tags %}<span class="tag" style="--tag: {{ t.color }}">{{ t.name }}</span>{% endfor %}</div></td>
+      <td class="c-seen">
+        <span class="seen" title="{% if p.first_seen %}First seen {{ p.first_seen }} · {% endif %}Last seen {{ p.last_seen or 'unknown' }}"><svg class="i"><use href="#i-clock"/></svg>{{ p.last_seen[:10] if p.last_seen else '—' }}</span>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+  <svg class="i"><use href="#i-search"/></svg>
+  {% if stats.players %}
+  <div>No players match these filters.</div>
+  {% else %}
+  <div>The database is empty.</div>
+  {% if has_role(user, 'editor') %}<p><a class="btn btn-primary" href="/import"><svg class="i"><use href="#i-upload"/></svg>Import demos, logs or spreadsheets</a></p>{% endif %}
+  {% endif %}
+</div>
+{% endif %}
+</div>
+
+{% if pages > 1 %}
+<nav class="pager" aria-label="Pages">
+  {% set qs = filter_qs(f, page=None) ~ ('&per=' ~ per if per != 50 else '') %}
+  {% if page > 1 %}<a href="?{{ qs }}&page={{ page - 1 }}" aria-label="Previous">‹</a>{% endif %}
+  {% for n in range(1, pages + 1) %}
+    {% if n == 1 or n == pages or (n >= page - 2 and n <= page + 2) %}
+      {% if n == page %}<span class="cur">{{ n }}</span>{% else %}<a href="?{{ qs }}&page={{ n }}">{{ n }}</a>{% endif %}
+    {% elif n == page - 3 or n == page + 3 %}<span class="gap">…</span>{% endif %}
+  {% endfor %}
+  {% if page < pages %}<a href="?{{ qs }}&page={{ page + 1 }}" aria-label="Next">›</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

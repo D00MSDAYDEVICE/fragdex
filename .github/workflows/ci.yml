@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+      - run: pip install -r app/requirements-dev.txt
+      - run: python -m pytest app/tests -q
+
+  scanner-python38:
+    # the downloadable fragdex-scan.py promises Python 3.8+
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+      - name: Build standalone scanner and run it
+        run: |
+          cd app && python -m fragdex.scanner_build /tmp/fragdex-scan.py && cd ..
+          mkdir -p /tmp/demos
+          python /tmp/fragdex-scan.py --version
+          python /tmp/fragdex-scan.py /tmp/demos -o /tmp/out.fdx
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+      - run: docker compose build app
+      - name: Caddyfile generation
+        run: |
+          docker run --rm -e TLS_MODE=auto -e SITE_HOST=203.0.113.10,fragdex.example.com \
+            -v "$PWD/caddy/entrypoint.sh:/e.sh:ro" --entrypoint /bin/sh caddy:2.11-alpine \
+            -c 'sed "s#^exec caddy run.*#caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile#" /e.sh > /tmp/e.sh && sh /tmp/e.sh'
+
+  scanner-exe:
+    # Builds the Windows scanner (app/scanner-win, C#) and checks its output matches the
+    # Python scanner's. Commit the rebuilt app/fragdex/downloads/fragdex-scan.exe when the
+    # parser changes; it is also attached to the run as an artifact.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: powershell -ExecutionPolicy Bypass -File app\tools\build_scanner_exe.ps1
+      - run: pip install -r app/requirements-dev.txt
+      - run: python -m pytest app/tests/test_importers.py -q -k "windows or huffman"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fragdex-scan-exe
+          path: app/fragdex/downloads/fragdex-scan.exe

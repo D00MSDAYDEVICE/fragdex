@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Users</h1>
+    <p><strong>Viewer</strong>: search, view &amp; export · <strong>Editor</strong>: + import, add/delete records, notes &amp; tags · <strong>Admin</strong>: + users, settings, delete players</p>
+  </div>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><h2>Add user</h2></div>
+  <div class="panel-body">
+    <form method="post" action="/admin/users" class="form-grid" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="field"><label for="nu">Username</label><input id="nu" type="text" name="username" required pattern="[A-Za-z0-9_.@\-]{2,40}"></div>
+      <div class="field"><label for="np">Password (min 10 chars)</label><input id="np" type="password" name="password" required minlength="10" autocomplete="new-password"></div>
+      <div class="field"><label for="nr">Role</label><select id="nr" name="role">{% for r in roles %}<option value="{{ r }}" {{ 'selected' if r == 'viewer' }}>{{ r|capitalize }}</option>{% endfor %}</select></div>
+      <div class="field" style="justify-content:flex-end"><button class="btn btn-primary" type="submit"><svg class="i"><use href="#i-plus"/></svg>Create user</button></div>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="scroll-x">
+  <table class="dtable">
+    <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Reset password</th><th>Last login</th><th></th><th></th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td><form class="inline" method="post" action="/admin/users/{{ u.id }}" id="uf{{ u.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"></form><strong>{{ u.username }}</strong>{% if u.id == user.id %} <span class="badge">you</span>{% endif %}</td>
+        <td><select name="role" form="uf{{ u.id }}" style="height:30px">{% for r in roles %}<option value="{{ r }}" {{ 'selected' if u.role == r }}>{{ r|capitalize }}</option>{% endfor %}</select></td>
+        <td><label class="check"><input type="checkbox" name="disabled" value="1" form="uf{{ u.id }}" {{ 'checked' if u.disabled }} {{ 'disabled' if u.id == user.id }}>Disabled</label></td>
+        <td><input type="password" name="password" form="uf{{ u.id }}" placeholder="new password" minlength="10" autocomplete="new-password" style="height:30px;width:170px"></td>
+        <td class="muted nowrap">{{ u.last_login[:16] if u.last_login else 'never' }}</td>
+        <td><button class="btn btn-sm" type="submit" form="uf{{ u.id }}">Save</button></td>
+        <td class="num">{% if u.id != user.id %}
+          <form class="inline" method="post" action="/admin/users/{{ u.id }}/delete" data-confirm="Delete user '{{ u.username }}'?">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="icon-btn" type="submit" title="Delete user"><svg class="i"><use href="#i-trash"/></svg></button>
+          </form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{% endblock %}

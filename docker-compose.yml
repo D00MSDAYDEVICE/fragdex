@@ -1,0 +1,41 @@
+# Fixed project name: volumes are always fragdex_fragdex_data etc., whatever the folder is
+# called, so extracting a new release into a differently named folder keeps the data.
+name: fragdex
+
+services:
+  app:
+    build: ./app
+    image: fragdex:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      WATCH_DIR: /watch
+    volumes:
+      - fragdex_data:/data
+      # Linux default /home/demos, Windows default C:\demos (set in .env by deployfragdex.sh / deployfragdex.ps1)
+      - ${HOST_WATCH_DIR:-/home/demos}:/watch:ro
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2.11-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    env_file: .env
+    entrypoint: ["/bin/sh", "/fragdex-entrypoint.sh"]
+    ports:
+      - "${HTTP_PORT:-80}:${HTTP_PORT:-80}"
+      - "${HTTPS_PORT:-443}:${HTTPS_PORT:-443}"
+      - "${HTTPS_PORT:-443}:${HTTPS_PORT:-443}/udp"
+    volumes:
+      - ./caddy/entrypoint.sh:/fragdex-entrypoint.sh:ro
+      - ./certs:/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  fragdex_data:
+  caddy_data:
+  caddy_config:

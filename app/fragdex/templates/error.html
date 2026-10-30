@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="panel empty-state" style="max-width:520px;margin:40px auto">
+  <svg class="i"><use href="#i-shield"/></svg>
+  <h1 style="margin-bottom:6px">{{ title }}</h1>
+  <p>{{ message }}</p>
+  <a class="btn" href="/">Back to players</a>
+</section>
+{% endblock %}

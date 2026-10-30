@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Settings</h1></div></div>
+<div class="grid-2">
+  <section class="panel">
+    <div class="panel-head"><h2>Steam Web API</h2></div>
+    <div class="panel-body">
+      <p class="muted" style="margin-top:0">With a key, the app fetches each player's avatar, current Steam name and VAC/game ban status, refreshing every {{ cfg.STEAM_REFRESH_HOURS }} h. Get a key at <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener noreferrer">steamcommunity.com/dev/apikey</a>.</p>
+      {% if key_from_env %}
+        <p>Key is set by the <code>STEAM_API_KEY</code> environment variable (<code>{{ key_hint }}</code>).</p>
+      {% else %}
+      <form method="post" action="/admin/settings" style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="steam_key">
+        <input type="password" name="steam_api_key" placeholder="{{ 'Saved: ' ~ key_hint ~ ' (enter a new key to replace, empty to remove)' if key_set else '32-character key' }}" autocomplete="off" style="flex:1;min-width:240px">
+        <button class="btn btn-primary" type="submit">Save key</button>
+      </form>
+      {% endif %}
+      <div class="progress" data-steam-progress data-state="{{ sp.state }}" data-pending="{{ sp.pending }}">
+        <div class="progress-head">
+          <span>Avatars &amp; ban status</span>
+          <span class="progress-count"><strong data-sp="done">{{ "{:,}".format(sp.done) }}</strong> / <span data-sp="total">{{ "{:,}".format(sp.total) }}</span> · <span data-sp="percent">{{ sp.percent }}</span>%</span>
+        </div>
+        <div class="bar" role="progressbar" aria-label="Steam refresh progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ sp.percent }}"><span data-sp="bar" style="width: {{ sp.percent }}%"></span></div>
+        <div class="progress-foot">
+          <span data-sp="status">{% if sp.state == 'nokey' %}Add a key to start{% elif sp.state == 'running' %}Fetching from Steam…{% elif sp.state == 'error' %}Last run failed, retrying{% elif sp.pending %}{{ "{:,}".format(sp.pending) }} waiting{% else %}All players up to date{% endif %}</span>
+          <span><span data-sp="avatars">{{ "{:,}".format(sp.avatars) }}</span> avatars</span>
+        </div>
+      </div>
+      <dl class="kv" style="margin-top:14px">
+        <dt>Last refresh run</dt><dd data-sp="last_run">{{ sp.last_run or '—' }}</dd>
+      </dl>
+      <div class="flash flash-error" data-sp="error" style="margin-top:12px"{% if not sp.error %} hidden{% endif %}>{{ sp.error }}</div>
+      {% if key_set %}
+      <form method="post" action="/admin/settings" style="margin-top:12px">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="steam_refresh_all">
+        <button class="btn btn-sm" type="submit"><svg class="i"><use href="#i-refresh"/></svg>Re-check all players now</button>
+      </form>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>System</h2></div>
+    <div class="panel-body">
+      <dl class="kv">
+        <dt>Players</dt><dd>{{ "{:,}".format(info.players) }}</dd>
+        <dt>Records</dt><dd>{{ "{:,}".format(info.sightings) }}</dd>
+        <dt>Database size</dt><dd>{{ info.db_mb }} MB</dd>
+        <dt>TLS mode</dt><dd><code>{{ cfg.TLS_MODE }}</code></dd>
+        <dt>Watched folder</dt><dd><code>{{ cfg.WATCH_DIR }}</code></dd>
+        <dt>Linked-account IP limit</dt><dd>{{ cfg.ALT_IP_MAX_ACCOUNTS or 'none' }}</dd>
+        <dt>Keep uploaded files</dt><dd>{{ 'yes' if cfg.KEEP_UPLOADS else 'no' }}</dd>
+      </dl>
+      <p class="muted" style="font-size:12.5px">These come from <code>.env</code>; change them there and run <code>docker compose up -d</code>.</p>
+      <form method="post" action="/admin/settings">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="recompute_alts">
+        <button class="btn btn-sm" type="submit"><svg class="i"><use href="#i-refresh"/></svg>Recalculate summaries &amp; linked accounts</button>
+      </form>
+    </div>
+  </section>
+</div>
+{% endblock %}
