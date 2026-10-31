@@ -7,7 +7,7 @@ import threading
 import time
 import traceback
 
-from . import config, db, steam
+from . import apikeys, config, db, steam
 from .importers.common import file_kind
 from .importers.demo import parse_demo
 from .importers.export import read_export
@@ -29,6 +29,16 @@ def wake():
 
 def wake_steam():
     _steam_wake.set()
+
+
+# Records added through the API arrive in small batches all the time; linked accounts are recalculated
+# for them at most once a minute instead of after every request.
+API_ALTS_INTERVAL = 60
+_api_alts_dirty = threading.Event()
+
+
+def api_records_added():
+    _api_alts_dirty.set()
 
 
 def sha256_file(path):
@@ -231,15 +241,21 @@ def process(conn, job):
 
 def import_worker():
     alts_dirty = True
+    last_alts = 0.0
     while True:
         try:
             with db.get_db() as conn:
+                apikeys.usage.flush(conn)
                 job = conn.execute("SELECT * FROM imports WHERE status='queued' ORDER BY id LIMIT 1").fetchone()
                 if job is None:
+                    if _api_alts_dirty.is_set() and time.monotonic() - last_alts >= API_ALTS_INTERVAL:
+                        _api_alts_dirty.clear()
+                        alts_dirty = True
                     if alts_dirty:
                         with db.transaction(conn):
                             db.recompute_alts(conn)
                         alts_dirty = False
+                        last_alts = time.monotonic()
                         wake_steam()  # fetch avatars for the new players now rather than on the next cycle
                     _wake.wait(5)
                     _wake.clear()

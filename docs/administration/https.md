@@ -38,4 +38,4 @@ Then install `fragdex-root.crt` as a trusted root certificate on each PC: on Win
 
 ## Behind another proxy
 
-If Fragdex sits behind an existing reverse proxy (nginx, Traefik, a Cloudflare tunnel) that already does TLS, set `TLS_MODE=off` and point the proxy at `http://<host>:<HTTP_PORT>`. Make sure the proxy itself is only reachable over HTTPS.
+If Fragdex sits behind an existing reverse proxy (nginx, Traefik, a Cloudflare tunnel) that already does TLS, set `TLS_MODE=off` and point the proxy at `http://<host>:<HTTP_PORT>`. Make sure the proxy itself is only reachable over HTTPS, and set `TRUSTED_PROXIES` to the proxy's address so Fragdex sees the real client addresses (see [Settings and .env reference](settings.md#site-and-https)).

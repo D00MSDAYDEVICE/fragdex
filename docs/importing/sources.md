@@ -7,6 +7,7 @@
 | Server console logs | :material-check: | :material-check: | sometimes | each line, or file date |
 | Spreadsheets `.xlsx` / `.csv` | :material-check: | :material-check: | if there is a column | if there is a column |
 | `.fdx` files | :material-check: | :material-check: | as the original source | as the original source |
+| [API](../integrations/api.md), e.g. the [minqlx plugin](../integrations/minqlx-plugin.md) | :material-check: | :material-check: | :material-check: | each connection |
 
 ## Demos
 
@@ -26,6 +27,9 @@ Connection lines from minqlx chat logs give the most complete records: name, Ste
 ```text
 [2026-10-29 19:27:35] ^1Rail^7gun:76561197960287930:203.0.113.45 connected.
 ```
+
+!!! tip "Live instead of logs"
+    The [fragdex minqlx plugin](../integrations/minqlx-plugin.md) sends the same information to Fragdex the moment a player connects, so you don't need to collect chat logs at all. Its records have the source **API**.
 
 ## Server console logs
 

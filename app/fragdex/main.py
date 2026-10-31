@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, auth, config, db, steam, worker
+from . import __version__, api, apikeys, auth, config, db, steam, worker
 from .importers.common import (STEAM64_RE, Sighting, clean_name, file_kind, is_local_ip, normalize_discord_id,
                                normalize_ip, normalize_name, normalize_steam_id, parse_date)
 from .importers.export import FORMAT_VERSION, ExportWriter
@@ -32,7 +32,7 @@ HERE = os.path.dirname(__file__)
 DATE_RE = re.compile(r"^\d{4}-\d\d-\d\d$")
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 PER_PAGE = (25, 50, 100, 250)
-SOURCES = ("demo", "log", "xlsx", "csv", "manual")
+SOURCES = api.SOURCES
 MAX_ZIP_BYTES = 8 << 30
 MAX_ZIP_MEMBERS = 50000
 
@@ -49,6 +49,8 @@ app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None
 app.add_middleware(SessionMiddleware, secret_key=config.secret_key(), session_cookie="fragdex_session",
                    max_age=config.SESSION_DAYS * 86400, same_site="lax", https_only=config.COOKIE_SECURE)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
+app.include_router(api.router)
+app.add_exception_handler(api.ApiError, api.api_error)
 
 templates = Jinja2Templates(directory=os.path.join(HERE, "templates"))
 templates.env.filters["qlname"] = qlname
@@ -188,7 +190,7 @@ def login_page(request: Request, next: str = "/"):
 @app.post("/login")
 async def login(request: Request):
     form = await checked_form(request)
-    ip = request.client.host if request.client else "?"
+    ip = api.client_ip(request) or "?"
     nxt = safe_next(str(form.get("next", "/")))
     if auth.throttle.blocked(ip):
         return render(request, "login.html", None, status_code=429, next=nxt,
@@ -911,6 +913,11 @@ async def user_delete(request: Request, uid: int):
 @app.get("/admin/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     user = require(request, "admin")
+    return _settings(request, user)
+
+
+def _settings(request, user, new_key=None):
+    """The Settings page. new_key = {"name", "key"} shows a just-created key, once: it is never stored."""
     with db.get_db() as conn:
         key = db.steam_api_key(conn)
         info = {
@@ -919,13 +926,119 @@ def settings_page(request: Request):
             "steam_error": db.get_setting(conn, "steam_last_error"),
         }
         steam_status = _steam_status(conn)
+        apikeys.usage.flush(conn)
+        keys = [dict(r, state=apikeys.state(r)) for r in conn.execute("SELECT * FROM api_keys ORDER BY name, id")]
     try:
         info["db_mb"] = round(os.path.getsize(config.DB_PATH) / 1048576, 1)
     except OSError:
         info["db_mb"] = 0
     return render(request, "settings.html", user, nav="settings", key_set=bool(key),
                   key_from_env=bool(config.STEAM_API_KEY_ENV), key_hint=(key[:4] + "…" + key[-4:]) if key else "",
-                  info=info, cfg=config, wstatus=worker.status, sp=steam_status)
+                  info=info, cfg=config, wstatus=worker.status, sp=steam_status, api_keys=keys, new_key=new_key,
+                  api_url=str(request.base_url).rstrip("/") + api.router.prefix, default_rate=apikeys.DEFAULT_RATE,
+                  max_rate=apikeys.MAX_RATE, plugin=os.path.isfile(MINQLX_PLUGIN))
+
+
+def _api_key_form(form):
+    """The editable settings of an API key from the Settings form. Returns (values, error)."""
+    name, err = apikeys.parse_name(form.get("name"))
+    allowed, err2 = apikeys.parse_allowed_ips(form.get("allowed_ips"))
+    rate, err3 = apikeys.parse_rate(form.get("rate_limit"))
+    expires, err4 = apikeys.parse_expiry(form.get("expires_at"))
+    error = err or err2 or err3 or err4
+    if error:
+        return None, error
+    return {"name": name, "allowed_ips": allowed, "rate_limit": rate, "expires_at": expires,
+            "can_ips": int(form.get("can_ips") == "1"), "can_notes": int(form.get("can_notes") == "1"),
+            "can_write": int(form.get("can_write") == "1")}, None
+
+
+def _api_key_row(conn, key_id):
+    row = conn.execute("SELECT * FROM api_keys WHERE id=?", (key_id,)).fetchone()
+    if not row:
+        raise NotFound()
+    return row
+
+
+@app.post("/admin/api-keys", response_class=HTMLResponse)
+async def api_key_create(request: Request):
+    user = require(request, "admin")
+    form = await checked_form(request)
+    values, error = _api_key_form(form)
+    if error:
+        flash(request, error, "error")
+        return back("/admin/settings#api")
+    key, key_hash, prefix = apikeys.new_key()
+    with db.get_db() as conn:
+        conn.execute("""INSERT INTO api_keys(name, prefix, key_hash, can_ips, can_notes, can_write, allowed_ips,
+                        rate_limit, expires_at, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                     (values["name"], prefix, key_hash, values["can_ips"], values["can_notes"], values["can_write"],
+                      values["allowed_ips"], values["rate_limit"], values["expires_at"], user["username"], db.now()))
+    # rendered straight away rather than redirected, so the key never passes through the session cookie
+    return _settings(request, user, new_key={"name": values["name"], "key": key})
+
+
+@app.post("/admin/api-keys/{key_id}")
+async def api_key_update(request: Request, key_id: int):
+    require(request, "admin")
+    form = await checked_form(request)
+    values, error = _api_key_form(form)
+    with db.get_db() as conn:
+        _api_key_row(conn, key_id)
+        if error:
+            flash(request, error, "error")
+            return back("/admin/settings#api")
+        conn.execute("""UPDATE api_keys SET name=?, can_ips=?, can_notes=?, can_write=?, allowed_ips=?, rate_limit=?,
+                        expires_at=? WHERE id=?""",
+                     (values["name"], values["can_ips"], values["can_notes"], values["can_write"],
+                      values["allowed_ips"], values["rate_limit"], values["expires_at"], key_id))
+    apikeys.limiter.reset(key_id)
+    flash(request, f"Saved the settings of API key '{values['name']}'. They apply from its next request.")
+    return back("/admin/settings#api")
+
+
+@app.post("/admin/api-keys/{key_id}/rotate", response_class=HTMLResponse)
+async def api_key_rotate(request: Request, key_id: int):
+    user = require(request, "admin")
+    await checked_form(request)
+    key, key_hash, prefix = apikeys.new_key()
+    with db.get_db() as conn:
+        row = _api_key_row(conn, key_id)
+        conn.execute("UPDATE api_keys SET key_hash=?, prefix=? WHERE id=?", (key_hash, prefix, key_id))
+    return _settings(request, user, new_key={"name": row["name"], "key": key, "rotated": True})
+
+
+@app.post("/admin/api-keys/{key_id}/toggle")
+async def api_key_toggle(request: Request, key_id: int):
+    require(request, "admin")
+    await checked_form(request)
+    with db.get_db() as conn:
+        row = _api_key_row(conn, key_id)
+        conn.execute("UPDATE api_keys SET disabled=? WHERE id=?", (0 if row["disabled"] else 1, key_id))
+    flash(request, f"API key '{row['name']}' {'enabled' if row['disabled'] else 'disabled'}.")
+    return back("/admin/settings#api")
+
+
+@app.post("/admin/api-keys/{key_id}/delete")
+async def api_key_delete(request: Request, key_id: int):
+    require(request, "admin")
+    await checked_form(request)
+    with db.get_db() as conn:
+        row = _api_key_row(conn, key_id)
+        conn.execute("DELETE FROM api_keys WHERE id=?", (key_id,))
+    flash(request, f"Deleted API key '{row['name']}'. Apps using it can no longer connect.")
+    return back("/admin/settings#api")
+
+
+MINQLX_PLUGIN = os.path.join(HERE, "downloads", "minqlx", "fragdex.py")
+
+
+@app.get("/download/minqlx/fragdex.py")
+def download_minqlx_plugin(request: Request):
+    require(request, "admin")
+    if not os.path.isfile(MINQLX_PLUGIN):
+        raise NotFound()
+    return FileResponse(MINQLX_PLUGIN, media_type="text/x-python; charset=utf-8", filename="fragdex.py")
 
 
 def _steam_status(conn):

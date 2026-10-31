@@ -330,6 +330,166 @@ def test_steam_errors_never_show_the_key():
     assert "s3cr3tkey" not in str(err.value) and "HTTP 403" in str(err.value)
 
 
+# ---------------------------------------------------------------- API
+
+def _key_settings(**over):
+    form = {"name": "bot", "rate_limit": "120", "expires_at": "", "allowed_ips": ""}
+    form.update(over)
+    return form
+
+
+def _create_key(client, **over):
+    page = client.get("/admin/settings")
+    r = client.post("/admin/api-keys", data={"csrf": csrf_of(page.text), **_key_settings(**over)})
+    assert r.status_code == 200
+    key = max(re.findall(r"fdx_[A-Za-z0-9_-]+", r.text), key=len)
+    with db.get_db() as conn:
+        kid = conn.execute("SELECT id FROM api_keys WHERE key_hash=?", (apikeys_hash(key),)).fetchone()[0]
+    return key, kid
+
+
+def apikeys_hash(key):
+    from fragdex import apikeys
+    return apikeys.hash_key(key)
+
+
+def _edit_key(client, kid, **over):
+    page = client.get("/admin/settings")
+    r = client.post(f"/admin/api-keys/{kid}", data={"csrf": csrf_of(page.text), **_key_settings(**over)})
+    assert r.status_code == 200 and "Saved the settings" in r.text
+
+
+def _api(client, key, path, method="GET", **kw):
+    return client.request(method, "/api/v1" + path, headers={"Authorization": f"Bearer {key}"}, **kw)
+
+
+def test_api_keys_and_permissions(client):
+    assert login(client).status_code == 303
+    page = client.get("/admin/settings")
+    assert "Base URL" in page.text and "http://testserver/api/v1" in page.text
+    key, kid = _create_key(client, name="Discord bot")
+    with db.get_db() as conn:
+        row = dict(conn.execute("SELECT * FROM api_keys WHERE id=?", (kid,)).fetchone())
+    assert key not in str(row.values()) and row["key_hash"] == apikeys_hash(key)
+    assert key not in client.get("/admin/settings").text      # shown once only
+
+    assert client.get("/api/v1/status").status_code == 401
+    assert _api(client, "fdx_wrong", "/status").status_code == 401
+    r = client.get("/api/v1/status", headers={"X-API-Key": key})
+    assert r.status_code == 200 and r.json()["key"] == {"name": "Discord bot", "ips": False, "notes": False,
+                                                        "write": False, "rate_limit": 120, "expires": None}
+    assert r.headers["x-ratelimit-limit"] == "120"
+
+    # read-only key: no writes, no IP addresses anywhere, IP search doesn't match
+    rec = {"records": [{"steam_id": "76561198000000555", "name": "^2Api^7Guy", "ip": "192.0.2.55"}]}
+    assert _api(client, key, "/records", "POST", json=rec).status_code == 403
+    _edit_key(client, kid, name="Discord bot", can_write="1")
+    r = _api(client, key, "/records", "POST", json={"server": "^1CA ^7#1", "records": rec["records"] + [
+        {"steam_id": "76561198000000555", "name": "Local", "ip": "127.0.0.1", "seen_at": "2026-10-30 10:00:00"},
+        {"steam_id": "nope", "name": "x"}, {"steam_id": "76561198000000555"}]})
+    assert r.status_code == 200
+    assert r.json() == {"added": 2, "skipped": 0, "players": 1, "rejected": [
+        {"index": 2, "error": "invalid steam_id"}, {"index": 3, "error": "needs a name or an ip"}]}
+    with db.get_db() as conn:
+        rows = conn.execute("SELECT name, ip, source, server FROM sightings WHERE steam_id='76561198000000555'"
+                            " ORDER BY name").fetchall()
+    assert [tuple(r) for r in rows] == [("Local", "", "api", "CA #1"), ("^2Api^7Guy", "192.0.2.55", "api", "CA #1")]
+
+    p = _api(client, key, "/players/76561198000000555").json()
+    assert p["name"] == "ApiGuy" and "ips" not in p and "last_ip" not in p and "notes" not in p
+    assert _api(client, key, "/players?q=192.0.2.55").json()["total"] == 0
+    assert _api(client, key, "/ips/192.0.2.55").status_code == 403
+
+    _edit_key(client, kid, name="Discord bot", can_write="1", can_ips="1")
+    p = _api(client, key, "/players/76561198000000555").json()
+    assert p["last_ip"] == "192.0.2.55" and p["ips"][0]["ip"] == "192.0.2.55"
+    assert _api(client, key, "/players?q=192.0.2.55").json()["players"][0]["steam_id"] == "76561198000000555"
+    r = _api(client, key, "/ips/192.0.2.0/24").json()
+    assert r["query"] == "192.0.2.0/24" and r["players"][0]["ips"] == ["192.0.2.55"]
+
+    # lookup: known / unknown / invalid, linked accounts with their tags
+    with db.get_db() as conn:
+        conn.execute("UPDATE players SET discord_id='80351110224678912' WHERE steam_id='76561198000000555'")
+    r = _api(client, key, "/players/lookup", "POST",
+             json={"steam_ids": ["76561198000000555", "[U:1:123456789]", "bad"]}).json()
+    assert [p["known"] for p in r["players"]] == [True, False] and r["invalid"] == ["bad"]
+    assert r["players"][0]["discord_id"] == "80351110224678912"
+    assert _api(client, key, "/discord/<@80351110224678912>").json()["players"][0]["steam_id"] == "76561198000000555"
+    linked = _api(client, key, "/players/76561197960287930/linked").json()["linked"]
+    assert linked and all("shared_ips" in a for a in linked)
+    assert _api(client, key, "/players/76561198999999999").status_code == 404
+    assert _api(client, key, "/players?bans=nonsense").status_code == 400
+
+    # usage reaches the Settings page
+    page = client.get("/admin/settings").text
+    assert "Discord bot" in page and "Never" not in page.split("Discord bot", 1)[1].split("Last used", 1)[1][:80]
+
+
+def test_api_key_limits_change_without_new_key(client):
+    assert login(client).status_code == 303
+    key, kid = _create_key(client, name="limited", rate_limit="3")
+    codes = [_api(client, key, "/status").status_code for _ in range(4)]
+    assert codes == [200, 200, 200, 429]
+    r = _api(client, key, "/status")
+    assert int(r.headers["retry-after"]) > 0 and "Rate limit of 3" in r.json()["error"]
+    _edit_key(client, kid, name="limited", rate_limit="0")            # unlimited, same key
+    assert all(_api(client, key, "/status").status_code == 200 for _ in range(5))
+
+    _edit_key(client, kid, name="limited", allowed_ips="198.51.100.0/24\n203.0.113.9")
+    r = _api(client, key, "/status")
+    assert r.status_code == 403 and "can't be used from" in r.json()["error"]
+    # the address Caddy reports for the caller (X-Fragdex-Client-IP) is the one checked
+    ok = client.get("/api/v1/status", headers={"Authorization": f"Bearer {key}",
+                                               "X-Fragdex-Client-IP": "198.51.100.77"})
+    assert ok.status_code == 200
+    with db.get_db() as conn:
+        from fragdex import apikeys
+        apikeys.usage.flush(conn)
+        row = conn.execute("SELECT allowed_ips, last_denied_reason FROM api_keys WHERE id=?", (kid,)).fetchone()
+    assert tuple(row) == ("198.51.100.0/24 203.0.113.9", "ip")
+    _edit_key(client, kid, name="limited", allowed_ips="")
+    assert _api(client, key, "/status").status_code == 200
+
+    _edit_key(client, kid, name="limited", expires_at="2020-01-01")
+    assert _api(client, key, "/status").json()["error"] == "This API key is expired."
+    _edit_key(client, kid, name="limited", expires_at="2099-12-31")
+    assert _api(client, key, "/status").json()["key"]["expires"] == "2099-12-31"
+
+    page = client.get("/admin/settings")
+    client.post(f"/admin/api-keys/{kid}/toggle", data={"csrf": csrf_of(page.text)})
+    assert _api(client, key, "/status").json()["error"] == "This API key is disabled."
+    client.post(f"/admin/api-keys/{kid}/toggle", data={"csrf": csrf_of(page.text)})
+
+    r = client.post(f"/admin/api-keys/{kid}/rotate", data={"csrf": csrf_of(page.text)})
+    new = max(re.findall(r"fdx_[A-Za-z0-9_-]+", r.text), key=len)
+    assert new != key and _api(client, key, "/status").status_code == 401
+    assert _api(client, new, "/status").json()["key"]["expires"] == "2099-12-31"   # settings kept
+
+    page = client.get("/admin/settings")
+    r = client.post(f"/admin/api-keys/{kid}", data={"csrf": csrf_of(page.text),
+                                                    **_key_settings(name="limited", allowed_ips="not-an-ip")})
+    assert "is not an IP address" in r.text
+    client.post(f"/admin/api-keys/{kid}/delete", data={"csrf": csrf_of(page.text)})
+    assert _api(client, new, "/status").status_code == 401
+
+
+def test_api_settings_parsing():
+    from fragdex import apikeys
+    assert apikeys.parse_allowed_ips("203.0.113.9, 198.51.100.7/24\n::ffff:192.0.2.1 203.0.113.9") == \
+        ("203.0.113.9 198.51.100.0/24 192.0.2.1", None)
+    assert apikeys.ip_allowed("198.51.100.200", "198.51.100.0/24")
+    assert apikeys.ip_allowed("::ffff:198.51.100.200", "198.51.100.0/24")
+    assert not apikeys.ip_allowed("203.0.113.10", "198.51.100.0/24 203.0.113.9")
+    assert apikeys.ip_allowed("anything", "")
+    assert apikeys.parse_rate("") == (120, None) and apikeys.parse_rate("-1")[0] is None
+    assert apikeys.parse_expiry("2026-02-30")[0] is None and apikeys.parse_expiry("") == ("", None)
+    # a search from a key without notes access never matches note text
+    with db.get_db() as conn:
+        conn.execute("UPDATE players SET notes='secret-note-xyz' WHERE steam_id='76561198000000555'")
+        assert db.search_players(conn, {"q": "secret-note-xyz"})[0] == 1
+        assert db.search_players(conn, {"q": "secret-note-xyz"}, notes=False)[0] == 0
+
+
 def test_viewer_role(client):
     r = client.get("/admin/users")
     token = csrf_of(r.text)
@@ -340,6 +500,9 @@ def test_viewer_role(client):
     assert client.get("/").status_code == 200
     assert client.get("/import").status_code == 403
     assert client.get("/admin/users").status_code == 403
+    assert client.get("/admin/settings").status_code == 403
+    assert client.post("/admin/api-keys", data={"csrf": token, "name": "x"}).status_code == 403
+    assert client.get("/download/minqlx/fragdex.py").status_code == 403
     r = client.get("/player/76561197960287930")
     assert r.status_code == 200 and "/notes" not in r.text
 

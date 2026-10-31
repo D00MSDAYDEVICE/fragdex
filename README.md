@@ -26,8 +26,12 @@ Designed for flexibility and portability, Fragdex includes the `fragdex-scan` de
 - **fragdex-scan** desktop tool: index thousands of demos locally and upload one small
   `.fdx` file instead (8.3 GB of demos → about 500 KB in our test). On Windows it is a
   69 KB app with a window; elsewhere a single Python script.
+- **JSON API** for other programs (Discord bots, scripts, other Fragdex servers), with named
+  keys whose access, allowed IPs, rate limit and expiry can be changed without a new key.
+- **fragdex minqlx plugin** (minqlx and minqlxtended): every connection is recorded live,
+  and admins are warned in game when a tagged or banned player, or one linked to them, joins.
 - Users with roles: **viewer** (search/view/export), **editor** (+ import, edit),
-  **admin** (+ users, settings, delete players).
+  **admin** (+ users, settings, API keys, delete players).
 - Docker deploy with automatic HTTPS: Let's Encrypt for a domain **or a bare public
   IP**, self-signed when neither works, on whatever ports you choose.
 
@@ -155,6 +159,40 @@ them and reports the count. The Steam Profile links in that sheet were built fro
 rounded numbers, so they point to the wrong accounts too. To keep IDs intact in
 future, format the Steam ID column as **Text** before pasting IDs.
 
+## API and minqlx plugin
+
+Admins create API keys under **Settings → Fragdex API**, which also shows the base URL
+(`https://<your host>/api/v1`) to give to whoever sets up the other program. A key is shown
+once; Fragdex stores only its SHA-256. Per key you choose whether it may see IP addresses,
+see notes and add records, from which IPs it may be used, its rate limit (requests per
+minute) and an expiry date. All of these can be changed later without a new key, and
+**Rotate** issues a new key with the same settings.
+
+```bash
+curl -H "Authorization: Bearer fdx_..." https://fragdex.example.com/api/v1/players?q=railgun
+```
+
+Endpoints: `GET /status`, `GET /players` (search and filters), `GET /players/{steam_id}`,
+`GET /players/{steam_id}/linked`, `POST /players/lookup` (up to 100 Steam IDs),
+`GET /ips/{ip or CIDR}`, `GET /discord/{id}` and `POST /records`. See the
+[API docs](https://d00msdaydevice.github.io/fragdex/integrations/api/).
+
+The **fragdex** plugin for minqlx and minqlxtended (download it from the API panel) sends
+every connection and name change to Fragdex in the background and warns admins in game about
+players tagged `cheater` or `banned`, with VAC/game bans, or linked to such an account.
+Set it up from the server console:
+
+```text
+qlx !fragdex url https://fragdex.example.com
+qlx !fragdex key fdx_...
+qlx !fragdex test
+```
+
+See the [plugin docs](https://d00msdaydevice.github.io/fragdex/integrations/minqlx-plugin/).
+
+With `TLS_MODE=off` behind another reverse proxy, set `TRUSTED_PROXIES` to that proxy's
+address so API key IP restrictions and the login lockout see the real client address.
+
 ## Troubleshooting
 
 ### Build fails: `Temporary failure in name resolution` / `No matching distribution found`
@@ -249,6 +287,8 @@ covers the player data and is easier to move or share.
   CSRF token; cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` whenever TLS is on.
 - The app container is only reachable through Caddy. The database contains personal
   data (IP addresses), so keep accounts to people who need them.
+- API keys are stored as SHA-256 hashes and shown once. Give each program its own key with
+  only the access it needs; IP addresses and notes are off unless you allow them.
 
 ## Repository layout
 
@@ -264,12 +304,13 @@ covers the player data and is easier to move or share.
 │   ├── Dockerfile
 │   ├── requirements.txt      runtime deps (requirements-dev.txt adds pytest)
 │   ├── fragdex/              the FastAPI application
-│   │   ├── main.py           routes, auth, CSRF, uploads, downloads
+│   │   ├── main.py           routes, auth, CSRF, uploads, downloads, API key settings
+│   │   ├── api.py  apikeys.py    the /api/v1 JSON API; API keys, rate limits, usage
 │   │   ├── db.py             SQLite schema, search, alt-account linking
 │   │   ├── worker.py         import queue, watched folder, Steam refresher
 │   │   ├── importers/        demo / log / spreadsheet / .fdx parsers
 │   │   ├── scanner.py        fragdex-scan CLI (also bundled as a standalone script)
-│   │   ├── downloads/        prebuilt fragdex-scan.exe served to users
+│   │   ├── downloads/        prebuilt fragdex-scan.exe and the minqlx plugin (minqlx/fragdex.py)
 │   │   ├── templates/  static/
 │   ├── scanner-win/          the Windows fragdex-scan app (C#, WinForms)
 │   ├── tests/

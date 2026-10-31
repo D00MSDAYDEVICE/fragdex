@@ -2,11 +2,13 @@
 
 ## The Settings page
 
-**Settings** (admins only) has two panels.
+**Settings** (admins only) has three panels.
 
 **Steam Web API**: the key and live refresh progress. See [Steam Web API](steam.md).
 
 **System**: the number of players and records, database size, TLS mode, watched folder, linked-account IP limit and whether uploads are kept. These values come from `.env` and are shown for reference.
+
+**Fragdex API**: the base URL and the API keys other programs use, such as the [minqlx plugin](../integrations/minqlx-plugin.md). See [API](../integrations/api.md).
 
 **Recalculate summaries & linked accounts** rebuilds every player's summary (latest name and IP, counts, first and last seen) and all linked accounts from the raw records. Fragdex keeps these up to date by itself; use the button after changing `ALT_IP_MAX_ACCOUNTS`.
 
@@ -27,6 +29,7 @@ docker compose up -d
 | `HTTPS_PORT` | `443` | Port published on the host for HTTPS. |
 | `TLS_MODE` | `auto` | `auto`, `internal`, `custom` or `off`. See [HTTPS and ports](https.md). |
 | `ACME_EMAIL` | none | Optional e-mail for Let's Encrypt expiry and problem notices. |
+| `TRUSTED_PROXIES` | none | Only with `TLS_MODE=off` behind another reverse proxy: its address or range, comma separated, or `private_ranges`. Fragdex then uses the client address that proxy reports, for API key IP restrictions and the login lockout. |
 
 ### Accounts
 

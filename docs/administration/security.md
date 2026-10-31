@@ -14,6 +14,7 @@ Fragdex stores IP addresses linked to player identities. In many countries (incl
 | Network | The app container is not published on the host; it is reachable only through Caddy. |
 | Imports | Every file, including `.fdx`, is validated on import and never trusted. Players cannot inject records by typing Steam IDs or IPs into chat. |
 | Steam key | Shown only by its last characters, never included in error messages. |
+| API keys | Shown once when created; only a SHA-256 hash is stored. Per key: access to IP addresses, notes and adding records, allowed IPs, rate limit and expiry. Admins only. See [API](../integrations/api.md). |
 | Watched folder | Mounted read-only. |
 | Third parties | No analytics, no CDNs: fonts and scripts are served by Fragdex itself. Steam avatars load from Steam's image servers. |
 
@@ -24,6 +25,7 @@ Fragdex stores IP addresses linked to player identities. In many countries (incl
 - **Use HTTPS.** Leave `TLS_MODE=auto` unless you have a reason not to; with `off`, put Fragdex behind a proxy that does TLS.
 - **Protect `.env`.** It may contain the Steam key and the first admin password. The Linux installer sets it to mode `600`.
 - **Protect exports and backups.** A `.fdx` export or SQLite backup contains every IP address in the database. Store and share them accordingly.
+- **Give each program its own API key** with only the access it needs, restricted to its address where possible. Rotate a key that may have leaked.
 - **Use Hide IPs** when screen-sharing or streaming.
 - **Keep Docker and Fragdex updated.** See [Updating](updating.md).
 

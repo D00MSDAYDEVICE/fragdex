@@ -2,6 +2,8 @@
 
 There are two ways to get files into Fragdex: upload them on the **Import** page, or drop them into the **watched folder** on the server. Both feed the same background import queue. Importing needs the **editor** role.
 
+Game servers running the [minqlx plugin](../integrations/minqlx-plugin.md) add records live through the [API](../integrations/api.md), without files.
+
 ![The Import page](../assets/screenshots/import.png){ .shot loading=lazy }
 
 ## Upload files

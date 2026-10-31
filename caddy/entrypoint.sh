@@ -10,6 +10,12 @@
 #   internal always self-signed
 #   custom   use /certs/cert.pem + /certs/key.pem (mounted from ./certs)
 #   off      plain HTTP on HTTP_PORT (put your own proxy in front)
+#
+# TRUSTED_PROXIES: IP ranges of a proxy in front of Caddy (e.g. with TLS_MODE=off), comma separated, or
+#   private_ranges. Requests from them are trusted to name the real client in X-Forwarded-For.
+#
+# The app gets the client's address in X-Fragdex-Client-IP, which Caddy always sets itself, whatever the
+# client sent: the address it connected from, or the one a trusted proxy reported.
 set -eu
 
 HTTP_PORT="${HTTP_PORT:-80}"
@@ -19,6 +25,7 @@ SITE_HOST="$(printf '%s' "${SITE_HOST:-}" | tr ',' ' ')"
 ACME_EMAIL="${ACME_EMAIL:-}"
 ACME_CA="${ACME_CA:-}"
 UPSTREAM="${UPSTREAM:-app:8000}"
+TRUSTED_PROXIES="$(printf '%s' "${TRUSTED_PROXIES:-}" | tr ',' ' ')"
 OUT=/etc/caddy/Caddyfile
 
 is_ipv4() { printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; }
@@ -94,6 +101,12 @@ if [ "$TLS_MODE" = "custom" ] && { [ ! -f /certs/cert.pem ] || [ ! -f /certs/key
   exit 1
 fi
 
+case "$TRUSTED_PROXIES" in
+  *[!0-9A-Za-z:./_\ ]*)
+    echo "[fragdex] TRUSTED_PROXIES must be IP ranges such as 10.0.0.0/8, or private_ranges." >&2
+    exit 1 ;;
+esac
+
 first_host="${SITE_HOST%% *}"
 
 {
@@ -105,12 +118,16 @@ first_host="${SITE_HOST%% *}"
     # Browsers send no SNI when connecting to a bare IP; use this name's cert then.
     printf '\tdefault_sni %s\n' "$first_host"
   fi
+  if [ -n "$TRUSTED_PROXIES" ]; then
+    # right to left: the first address that isn't a trusted proxy is the client
+    printf '\tservers {\n\t\ttrusted_proxies static %s\n\t\ttrusted_proxies_strict\n\t}\n' "$TRUSTED_PROXIES"
+  fi
   printf '}\n\n'
 
   printf '(fragdex) {\n'
   printf '\tencode zstd gzip\n'
   printf '\theader -Server\n'
-  printf '\treverse_proxy %s\n' "$UPSTREAM"
+  printf '\treverse_proxy %s {\n\t\theader_up X-Fragdex-Client-IP {client_ip}\n\t}\n' "$UPSTREAM"
   printf '}\n\n'
 
   if [ "$TLS_MODE" = "off" ]; then

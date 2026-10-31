@@ -40,7 +40,7 @@
     </select>
     <select name="source" data-autosubmit aria-label="Source">
       <option value="">Any source</option>
-      {% for s in sources %}<option value="{{ s }}" {{ 'selected' if f.source == s }}>{{ s|upper if s in ('csv','xlsx') else s|capitalize }}</option>{% endfor %}
+      {% for s in sources %}<option value="{{ s }}" {{ 'selected' if f.source == s }}>{{ s|upper if s in ('csv','xlsx','api') else s|capitalize }}</option>{% endfor %}
     </select>
     {% if steam_enabled %}
     <select name="bans" data-autosubmit aria-label="Ban status">

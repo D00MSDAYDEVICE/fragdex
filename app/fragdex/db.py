@@ -112,6 +112,29 @@ CREATE TABLE IF NOT EXISTS settings(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- keys for the /api/v1 API; only a SHA-256 of each key is stored
+CREATE TABLE IF NOT EXISTS api_keys(
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    prefix TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    can_ips INTEGER NOT NULL DEFAULT 0,
+    can_notes INTEGER NOT NULL DEFAULT 0,
+    can_write INTEGER NOT NULL DEFAULT 0,
+    allowed_ips TEXT NOT NULL DEFAULT '',     -- space separated IPs / CIDR ranges; empty = any
+    rate_limit INTEGER NOT NULL DEFAULT 120,  -- requests per minute; 0 = unlimited
+    expires_at TEXT NOT NULL DEFAULT '',      -- last valid day (UTC, YYYY-MM-DD); empty = never
+    disabled INTEGER NOT NULL DEFAULT 0,
+    requests INTEGER NOT NULL DEFAULT 0,
+    last_used_at TEXT NOT NULL DEFAULT '',
+    last_used_ip TEXT NOT NULL DEFAULT '',
+    last_denied_at TEXT NOT NULL DEFAULT '',
+    last_denied_ip TEXT NOT NULL DEFAULT '',
+    last_denied_reason TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -302,13 +325,14 @@ def _like(s):
     return "%" + s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-def build_filter(f):
-    """f: dict of filter params. Returns (where_sql, params)."""
+def build_filter(f, ips=True, notes=True):
+    """f: dict of filter params. Returns (where_sql, params).
+    ips / notes = False keep the text search away from IP addresses / notes (API keys without that access)."""
     where, params = [], []
     q = (f.get("q") or "").strip()
     if q:
         net = None
-        if "/" in q:
+        if "/" in q and ips:
             try:
                 net = str(ipaddress.ip_network(q, strict=False))
             except ValueError:
@@ -318,14 +342,16 @@ def build_filter(f):
             params.append(net)
         else:
             key = search_key(q)
-            where.append("""(p.steam_id LIKE ? ESCAPE '\\'
-                OR p.steam_id IN (SELECT steam_id FROM sightings WHERE name_clean LIKE ? ESCAPE '\\'
-                                  OR ip LIKE ? ESCAPE '\\')
-                OR lower(COALESCE(p.steam_persona, '')) LIKE ? ESCAPE '\\'
-                OR lower(p.discord_id) LIKE ? ESCAPE '\\'
-                OR lower(p.notes) LIKE ? ESCAPE '\\')""")
             prefix = _like(q)[1:]
-            params += [prefix, _like(key), prefix, _like(key), _like(q.lower().lstrip("@")), _like(key)]
+            names = "name_clean LIKE ? ESCAPE '\\'" + (" OR ip LIKE ? ESCAPE '\\'" if ips else "")
+            where.append(f"""(p.steam_id LIKE ? ESCAPE '\\'
+                OR p.steam_id IN (SELECT steam_id FROM sightings WHERE {names})
+                OR lower(COALESCE(p.steam_persona, '')) LIKE ? ESCAPE '\\'
+                OR lower(p.discord_id) LIKE ? ESCAPE '\\'""" + (" OR lower(p.notes) LIKE ? ESCAPE '\\'" if notes else "")
+                + ")")
+            params += [prefix, _like(key)] + ([prefix] if ips else []) + [_like(key), _like(q.lower().lstrip("@"))]
+            if notes:
+                params.append(_like(key))
     tag = f.get("tag")
     if tag:
         where.append("p.steam_id IN (SELECT steam_id FROM player_tags WHERE tag_id = ?)")
@@ -354,8 +380,8 @@ def build_filter(f):
     return (" WHERE " + " AND ".join(where)) if where else "", params
 
 
-def search_players(conn, f, limit=50, offset=0):
-    where, params = build_filter(f)
+def search_players(conn, f, limit=50, offset=0, ips=True, notes=True):
+    where, params = build_filter(f, ips, notes)
     sort = SORTS.get(f.get("sort") or "last_seen", SORTS["last_seen"])
     direction = "ASC" if (f.get("dir") == "asc") else "DESC"
     total = conn.execute(f"SELECT COUNT(*) FROM players p{where}", params).fetchone()[0]

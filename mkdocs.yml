@@ -79,6 +79,9 @@ nav:
       - Supported Sources: importing/sources.md
       - fragdex-scan Desktop Tool: importing/fragdex-scan.md
       - The .fdx Format: importing/fdx-format.md
+  - Integrations:
+      - API: integrations/api.md
+      - minqlx Plugin: integrations/minqlx-plugin.md
   - Administration:
       - Users And Roles: administration/users.md
       - Steam Web API: administration/steam.md

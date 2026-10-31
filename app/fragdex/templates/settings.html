@@ -63,4 +63,102 @@
     </div>
   </section>
 </div>
+
+{% macro key_fields(k=None) %}
+  <div class="key-form-grid">
+    <div class="field"><label>Name</label><input type="text" name="name" value="{{ k.name if k else '' }}" maxlength="60" required placeholder="minqlx on CA #1, Discord bot…"></div>
+    <div class="field"><label>Rate limit (requests / minute)</label><input type="number" name="rate_limit" min="0" max="{{ max_rate }}" value="{{ k.rate_limit if k else default_rate }}" required><span class="hint">0 = unlimited</span></div>
+    <div class="field"><label>Expires</label><input type="date" name="expires_at" value="{{ k.expires_at if k else '' }}"><span class="hint">Works through this day (UTC). Empty = never.</span></div>
+    <div class="field key-ips"><label>Allowed IPs</label><textarea name="allowed_ips" rows="2" placeholder="Any address. Or e.g. 203.0.113.10, 198.51.100.0/24">{{ k.allowed_ips.replace(' ', '\n') if k else '' }}</textarea><span class="hint">IP addresses or ranges, one per line. Empty = any address.</span></div>
+  </div>
+  <div class="key-perms">
+    <span class="check is-fixed"><input type="checkbox" checked disabled> Read players, names, tags, bans</span>
+    <label class="check"><input type="checkbox" name="can_ips" value="1" {{ 'checked' if k and k.can_ips }}> See IP addresses</label>
+    <label class="check"><input type="checkbox" name="can_notes" value="1" {{ 'checked' if k and k.can_notes }}> See notes</label>
+    <label class="check"><input type="checkbox" name="can_write" value="1" {{ 'checked' if k and k.can_write }}> Add records</label>
+  </div>
+{% endmacro %}
+
+<section class="panel" id="api">
+  <div class="panel-head"><h2>Fragdex API</h2><span class="muted">{{ api_keys|length }} key{{ '' if api_keys|length == 1 else 's' }}</span></div>
+  <div class="panel-body">
+    <p class="muted" style="margin-top:0">Other apps, such as a minqlx plugin or a Discord bot, can query and add to Fragdex with an API key. Give the app the base URL and a key of its own; each key's access, allowed IPs, rate limit and expiry can be changed at any time without a new key.</p>
+    <div class="api-url">
+      <label>Base URL</label>
+      <div class="copy-field"><code>{{ api_url }}</code><button class="icon-btn" type="button" data-copy="{{ api_url }}" title="Copy base URL"><svg class="i"><use href="#i-copy"/></svg></button></div>
+    </div>
+    {% if plugin %}<p class="api-plugin"><a class="btn btn-sm" href="/download/minqlx/fragdex.py"><svg class="i"><use href="#i-download"/></svg>minqlx plugin (fragdex.py)</a> <span class="muted">Records every connection live and warns admins in game about tagged or banned players. Needs a key with <em>Add records</em>.</span></p>{% endif %}
+
+    {% if new_key %}
+    <div class="flash flash-ok new-key" role="status">
+      <strong>{{ 'New key for' if new_key.rotated else 'API key created:' }} {{ new_key.name }}</strong>
+      <p>Copy it now. It is shown only once{% if new_key.rotated %}, and the previous key no longer works{% endif %}.</p>
+      <div class="copy-field"><code>{{ new_key.key }}</code><button class="icon-btn" type="button" data-copy="{{ new_key.key }}" title="Copy key"><svg class="i"><use href="#i-copy"/></svg></button></div>
+      <p class="muted">Test it:</p>
+      <pre class="example">curl -H "Authorization: Bearer {{ new_key.key }}" {{ api_url }}/status</pre>
+    </div>
+    {% endif %}
+
+    <ul class="api-keys">
+      {% for k in api_keys %}
+      <li class="api-key{{ ' is-off' if k.state != 'active' }}">
+        <div class="api-key-head">
+          <div class="api-key-title">
+            <strong>{{ k.name }}</strong> <code class="muted">{{ k.prefix }}…</code>
+            {% if k.state == 'active' %}<span class="badge badge-ok">Active</span>{% elif k.state == 'expired' %}<span class="badge badge-ban">Expired</span>{% else %}<span class="badge">Disabled</span>{% endif %}
+          </div>
+          <div class="api-key-access">
+            <span class="badge badge-plain">Read</span>
+            {% if k.can_ips %}<span class="badge badge-plain">IPs</span>{% endif %}
+            {% if k.can_notes %}<span class="badge badge-plain">Notes</span>{% endif %}
+            {% if k.can_write %}<span class="badge badge-plain">Add records</span>{% endif %}
+          </div>
+        </div>
+        <dl class="api-key-meta">
+          <div><dt>Allowed IPs</dt><dd>{{ k.allowed_ips.replace(' ', ', ') if k.allowed_ips else 'Any' }}</dd></div>
+          <div><dt>Rate limit</dt><dd>{{ "{:,}/min".format(k.rate_limit) if k.rate_limit else 'Unlimited' }}</dd></div>
+          <div><dt>Expires</dt><dd>{{ k.expires_at or 'Never' }}</dd></div>
+          <div><dt>Last used</dt><dd>{% if k.last_used_at %}{{ k.last_used_at }} <span class="muted">from {{ k.last_used_ip }}</span>{% else %}Never{% endif %}</dd></div>
+          <div><dt>Requests</dt><dd>{{ "{:,}".format(k.requests) }}</dd></div>
+          <div><dt>Created</dt><dd>{{ k.created_at[:10] }}{% if k.created_by %} <span class="muted">by {{ k.created_by }}</span>{% endif %}</dd></div>
+          {% if k.last_denied_at %}<div class="api-key-denied"><dt>Last refused</dt><dd>{{ k.last_denied_at }} <span class="muted">from {{ k.last_denied_ip }}:</span> {{ {'ip': 'IP not allowed', 'expired': 'key expired', 'disabled': 'key disabled'}.get(k.last_denied_reason, k.last_denied_reason) }}</dd></div>{% endif %}
+        </dl>
+        <div class="api-key-actions">
+          <details class="api-key-edit">
+            <summary class="btn btn-sm">Edit</summary>
+            <form method="post" action="/admin/api-keys/{{ k.id }}">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              {{ key_fields(k) }}
+              <button class="btn btn-primary btn-sm" type="submit">Save</button>
+            </form>
+          </details>
+          <form method="post" action="/admin/api-keys/{{ k.id }}/toggle">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn btn-sm" type="submit">{{ 'Enable' if k.disabled else 'Disable' }}</button>
+          </form>
+          <form method="post" action="/admin/api-keys/{{ k.id }}/rotate" data-confirm="Replace the key of '{{ k.name }}' with a new one? Its settings are kept, but apps using the current key stop working until you give them the new one.">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn btn-sm" type="submit"><svg class="i"><use href="#i-refresh"/></svg>Rotate</button>
+          </form>
+          <form method="post" action="/admin/api-keys/{{ k.id }}/delete" data-confirm="Delete the API key '{{ k.name }}'? Apps using it can no longer connect. This can't be undone.">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn btn-sm btn-danger" type="submit"><svg class="i"><use href="#i-trash"/></svg>Delete</button>
+          </form>
+        </div>
+      </li>
+      {% else %}
+      <li class="api-empty muted">No API keys yet.</li>
+      {% endfor %}
+    </ul>
+
+    <details class="api-create"{{ ' open' if not api_keys }}>
+      <summary class="btn btn-primary btn-sm"><svg class="i"><use href="#i-plus"/></svg>Create key</summary>
+      <form method="post" action="/admin/api-keys">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        {{ key_fields() }}
+        <button class="btn btn-primary btn-sm" type="submit">Create key</button>
+      </form>
+    </details>
+  </div>
+</section>
 {% endblock %}
