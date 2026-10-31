@@ -27,7 +27,7 @@
   <div class="search-row">
     <div class="search-box">
       <svg class="i"><use href="#i-search"/></svg>
-      <input type="search" name="q" value="{{ f.q }}" placeholder="Search name, alias, Steam ID, IP or CIDR (1.2.3.0/24), notes…" autofocus>
+      <input type="search" name="q" value="{{ f.q }}" placeholder="Search name, alias, Steam ID, Discord ID, IP or CIDR (1.2.3.0/24), notes…" autofocus>
     </div>
     <button class="btn btn-primary" type="submit">Search</button>
     {% if filters_active %}<a class="btn btn-ghost" href="/"><svg class="i"><use href="#i-x"/></svg>Clear</a>{% endif %}
@@ -81,6 +81,7 @@
     <tr>
       {{ sort_th('name', 'Player') }}
       {{ sort_th('steam_id', 'Steam ID') }}
+      <th>Discord ID</th>
       <th>IP Address{% include "_ip_toggle.html" %}</th>
       {% set by_aliases = f.sort == 'aliases' %}
       <th>History<a class="th-toggle" href="?{{ filter_qs(f, sort=None if by_aliases else 'aliases', dir=None if by_aliases else 'desc', page=None) }}{{ '&per=' ~ per if per != 50 }}" aria-pressed="{{ 'true' if by_aliases else 'false' }}" title="{{ 'Back to newest first' if by_aliases else 'Sort by most aliases' }}" aria-label="Sort by most aliases"><svg class="i"><use href="#i-sort-desc"/></svg></a></th>
@@ -107,6 +108,7 @@
           <code>{{ p.steam_id }}</code>
         </span>
       </td>
+      <td class="c-discord{{ ' empty' if not p.discord_id }}">{% if p.discord_id %}<span class="sid">{% if discord_url(p.discord_id) %}<a class="discord-link" href="{{ discord_url(p.discord_id) }}" target="_blank" rel="noopener noreferrer" title="Open Discord profile"><svg class="i"><use href="#i-discord"/></svg></a>{% else %}<span class="discord-link" title="Discord username"><svg class="i"><use href="#i-discord"/></svg></span>{% endif %}<code>{{ p.discord_id }}</code></span>{% else %}<span class="faint">—</span>{% endif %}</td>
       <td class="c-ip">{% if p.last_ip %}<span class="ip">{{ p.last_ip }}</span>{% else %}<span class="faint">—</span>{% endif %}</td>
       <td class="c-icons">
         <div class="icons">

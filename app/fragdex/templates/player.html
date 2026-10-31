@@ -13,6 +13,7 @@
         <code>{{ p.steam_id }}</code>
         <button class="icon-btn" style="width:26px;height:26px" data-copy="{{ p.steam_id }}" title="Copy Steam ID"><svg class="i" style="width:14px;height:14px"><use href="#i-copy"/></svg></button>
       </span>
+      {% if p.discord_id %}<span class="sid">{% if discord_url(p.discord_id) %}<a class="discord-link" href="{{ discord_url(p.discord_id) }}" target="_blank" rel="noopener noreferrer" title="Open Discord profile"><svg class="i"><use href="#i-discord"/></svg></a>{% else %}<span class="discord-link" title="Discord username"><svg class="i"><use href="#i-discord"/></svg></span>{% endif %}<code>{{ p.discord_id }}</code></span>{% endif %}
       {% if p.steam_persona %}<span title="Current Steam persona name">Steam: <strong>{{ p.steam_persona }}</strong></span>{% endif %}
       {% if p.vac_bans %}<span class="badge badge-ban badge-plain"><svg class="i" style="width:12px;height:12px"><use href="#i-shield"/></svg>{{ p.vac_bans }} VAC</span>{% endif %}
       {% if p.game_bans %}<span class="badge badge-ban">{{ p.game_bans }} game ban{{ 's' if p.game_bans > 1 }}</span>{% endif %}
@@ -129,6 +130,7 @@
         <dl class="kv">
           <dt>First seen</dt><dd>{{ p.first_seen or '—' }}</dd>
           <dt>Last seen</dt><dd>{{ p.last_seen or '—' }}</dd>
+          <dt>Discord ID</dt><dd>{{ p.discord_id or '—' }}</dd>
           <dt>Latest IP</dt>{% if p.last_ip %}<dd class="ip">{{ p.last_ip }}</dd>{% else %}<dd>—</dd>{% endif %}
           <dt>Names</dt><dd>{{ p.name_count }}</dd>
           <dt>IP addresses</dt><dd>{{ p.ip_count }}</dd>
@@ -163,6 +165,19 @@
         {% endif %}
       </div>
     </section>
+
+    {% if has_role(user, 'editor') %}
+    <section class="panel">
+      <div class="panel-head"><h2>Discord ID</h2></div>
+      <div class="panel-body">
+        <form method="post" action="/player/{{ p.steam_id }}/discord" style="display:flex;gap:8px">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="text" name="discord_id" value="{{ p.discord_id }}" maxlength="100" placeholder="User ID or username" aria-label="Discord ID" style="flex:1;min-width:0">
+          <button class="btn" type="submit">Save</button>
+        </form>
+      </div>
+    </section>
+    {% endif %}
 
     <section class="panel">
       <div class="panel-head"><h2>Notes</h2></div>

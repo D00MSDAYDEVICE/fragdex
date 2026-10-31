@@ -9,16 +9,17 @@ Open **Add** in the top navigation.
 | Field | |
 |---|---|
 | **Steam ID** | Required. Any of: `76561197960287930`, `STEAM_0:0:11101`, `[U:1:22202]`, or a `https://steamcommunity.com/profiles/…` link. |
+| **Discord ID** | Optional. A Discord user ID, `<@mention>`, `discord.com/users/…` link or username. Sets the player's [Discord ID](player-profile.md#discord-id), replacing any earlier one. |
 | **Name** | Quake colour codes are allowed, for example `^1Rail^7gun`. |
-| **IP address** | Optional. IPv4 or IPv6. |
+| **IP address** | Optional. IPv4 or IPv6. Local addresses (`127.0.0.1`, `::1`) are refused: they are the server itself, never a player. |
 | **Seen at** | Optional date and time. Leave it empty for an undated record. |
 | **Notes** | Optional. Appended to the player's notes. |
 
-Enter at least a name or an IP. If the Steam ID is new, the player is created; otherwise the name and IP are added to their history. Adding the exact same record twice does nothing.
+Enter at least a name, an IP or a Discord ID. If the Steam ID is new, the player is created; otherwise the name and IP are added to their history. Adding the exact same record twice does nothing. A Discord ID on its own just sets the player's Discord ID without adding a record.
 
 ## Add to an existing player
 
-On a [player profile](player-profile.md), the **Add record** panel does the same without retyping the Steam ID.
+On a [player profile](player-profile.md), the **Add record** panel does the same without retyping the Steam ID, and the **Discord ID** panel sets or clears the Discord ID.
 
 ## How manual records appear
 

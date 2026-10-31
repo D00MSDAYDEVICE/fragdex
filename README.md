@@ -11,7 +11,10 @@ Designed for flexibility and portability, Fragdex includes the `fragdex-scan` de
 - Each row shows the latest name (in its Quake colours), Steam ID with a link to the
   Steam profile, latest IP, small icons that reveal past names and past IPs, and
   the last-seen date.
-- Alt-account linking: other Steam IDs seen on the same IP.
+- Alt-account linking: other Steam IDs seen on the same IP. Local addresses (127.0.0.1, ::1)
+  are never recorded, so they can't link everyone seen through the server itself.
+- Discord ID per player (user ID or username), in its own column, searchable, settable on the
+  Add page, the player page or from a spreadsheet's *Discord ID* column.
 - Sort by most aliases with the toggle in the History column header.
 - Optional Steam Web API enrichment: avatar, current Steam name, VAC/game bans, with
   live progress of the background refresh under Settings.
@@ -128,7 +131,7 @@ always in sync.
 | Demos `.dm_91` | Name (`n`) + Steam ID (`st`) of every player in the gamestate configstrings, plus players who join or rename mid-demo. Dated by the match start (`g_levelStartTime`, UTC). Demos contain **no IPs**. Point `HOST_WATCH_DIR` at your Quake Live `baseq3/demos` folder to index every demo you record. |
 | minqlx chat logs | `[2026-10-29 19:27:35] Railgun:76561197960287930:203.0.113.45 connected.` → name, Steam ID, IP, time. |
 | Server logs `.log`/`.txt` | Info-string lines (`n\Name\…\st\7656…`, `\ip\…`), and lines containing exactly one Steam ID and one IP. Chat lines are ignored for these rules so players can't inject fake entries. Lines without a timestamp use the file's modified time. |
-| Spreadsheets `.xlsx`/`.csv` | Columns matched by header: Player Name, Steam ID, Aliases, IP Address, Date. Also accepts `STEAM_0:X:Y`, `[U:1:Z]` and profile URLs. |
+| Spreadsheets `.xlsx`/`.csv` | Columns matched by header: Player Name, Steam ID, Discord ID, Aliases, IP Address, Date. Also accepts `STEAM_0:X:Y`, `[U:1:Z]` and profile URLs. **Import → Sample CSV** downloads a template with every column. |
 
 On a Windows host using Docker Desktop, `C:\demos` is shared with the container
 automatically (WSL 2 backend). If you use the Hyper-V backend, add it under
@@ -136,6 +139,13 @@ Settings → Resources → File sharing.
 
 Log files in the watched folder are **followed**: only new lines are read on each
 scan, so you can point `HOST_WATCH_DIR` straight at a live server's log folder.
+
+### Database cleanup
+
+`127.0.0.1` / `::1` are never recorded as a player's IP: they are the server itself or a proxy,
+and would link every account seen through them. Records imported before this rule can be
+fixed under **Import → Database cleanup → Remove local IP addresses**, which shows how many
+records it will change before you press **Fix**. Further maintenance tools go in the same panel.
 
 ### About Players.xlsx
 

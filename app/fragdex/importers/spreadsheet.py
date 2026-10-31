@@ -7,6 +7,7 @@ Players.xlsx layout and simpler CSVs both work:
   aliases : Aliases, Alias, AKA, Other Names   (split on , ; | and " / ")
   ip      : IP Address, IP, IPs
   date    : Date, Seen, Last Seen, Timestamp
+  discord : Discord ID, Discord, Discord Username   (one per player; kept with the player)
 Rows whose Steam ID was stored as a number (e.g. 7.65611980147868E+16) have
 lost digits and are skipped.
 """
@@ -14,7 +15,7 @@ import csv
 import io
 import re
 
-from .common import (Sighting, normalize_ip, normalize_name, normalize_steam_id,
+from .common import (Sighting, normalize_discord_id, normalize_ip, normalize_name, normalize_steam_id,
                      parse_date)
 
 HEADERS = {
@@ -23,6 +24,7 @@ HEADERS = {
     "aliases": {"aliases", "alias", "aka", "other names", "alt names"},
     "ip": {"ip address", "ip", "ips", "ip addr", "ip addresses", "address"},
     "date": {"date", "seen", "last seen", "date seen", "timestamp", "time", "seen at"},
+    "discord": {"discord id", "discord", "discordid", "discord user", "discord username", "discord name"},
 }
 ALIAS_SPLIT_RE = re.compile(r"\s*(?:,|;|\||\s/\s)\s*")
 IP_SPLIT_RE = re.compile(r"[\s,;|]+")
@@ -41,7 +43,7 @@ def _map_header(row):
 
 
 def _rows_to_sightings(rows):
-    stats = {"rows": 0, "skipped_bad_id": 0, "skipped_no_id": 0}
+    stats = {"rows": 0, "skipped_bad_id": 0, "skipped_no_id": 0, "bad_discord": 0, "discord": {}}
     out = []
     cols = None
     for row in rows:
@@ -70,6 +72,13 @@ def _rows_to_sightings(rows):
         ips = [ip for ip in (normalize_ip(p) for p in IP_SPLIT_RE.split(str(cell("ip") or ""))) if ip]
         for ip in ips or [""]:
             out.append(Sighting(steam_id=sid, name=name, ip=ip, seen_at=seen))
+        raw_discord = cell("discord")
+        if raw_discord not in (None, ""):
+            discord = normalize_discord_id(raw_discord)
+            if discord:
+                stats["discord"][sid] = discord
+            else:
+                stats["bad_discord"] += 1
         aliases = cell("aliases")
         if aliases not in (None, ""):
             for alias in ALIAS_SPLIT_RE.split(str(aliases)):
@@ -86,7 +95,7 @@ def parse_xlsx(path):
 
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
-        all_out, total = [], {"rows": 0, "skipped_bad_id": 0, "skipped_no_id": 0}
+        all_out, total = [], {"rows": 0, "skipped_bad_id": 0, "skipped_no_id": 0, "bad_discord": 0, "discord": {}}
         found = False
         for ws in wb.worksheets:
             try:
@@ -96,7 +105,10 @@ def parse_xlsx(path):
             found = True
             all_out.extend(out)
             for k in total:
-                total[k] += stats[k]
+                if k == "discord":
+                    total[k].update(stats[k])
+                else:
+                    total[k] += stats[k]
         if not found:
             raise ValueError("No sheet has a header row with a Steam ID column")
         return all_out, total

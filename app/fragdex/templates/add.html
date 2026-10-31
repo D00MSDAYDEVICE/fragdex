@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Add a player record</h1>
-    <p>Creates the player if the Steam ID is new, otherwise adds the name/IP to their history.</p>
+    <p>Creates the player if the Steam ID is new, otherwise adds the name/IP to their history and sets their Discord ID.</p>
   </div>
 </div>
 <section class="panel" style="max-width:760px">
@@ -13,6 +13,7 @@
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <div class="form-grid">
         <div class="field" style="grid-column:1/-1"><label for="sid">Steam ID</label><input id="sid" type="text" name="steam_id" required placeholder="76561197960287930, STEAM_0:0:11101, [U:1:22202] or a steamcommunity.com/profiles/… link"></div>
+        <div class="field"><label for="dc">Discord ID</label><input id="dc" type="text" name="discord_id" maxlength="100" placeholder="optional: user ID or username" title="A Discord user ID (17-20 digits, e.g. 80351110224678912), a &lt;@mention&gt;, a discord.com/users/ link, or a username"></div>
         <div class="field"><label for="n">Name</label><input id="n" type="text" name="name" maxlength="64" placeholder="Quake colour codes allowed (^1red^7white)"></div>
         <div class="field"><label for="ip">IP address</label><input id="ip" type="text" name="ip" placeholder="optional"></div>
         <div class="field"><label for="d">Seen at</label><input id="d" type="datetime-local" name="seen_at"></div>

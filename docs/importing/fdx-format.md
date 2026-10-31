@@ -38,18 +38,21 @@ Every following line is an entry. A **file entry** holds the records from one sc
 | `map`, `server` | From the demo, if known. |
 | `s` | The records: `[steam_id, name, ip, seen_at]`. Name keeps its Quake colour codes; `ip` is empty for demos; `seen_at` is `YYYY-MM-DD HH:MM:SS` or empty (demo dates are UTC; log dates are as the log wrote them). |
 
-A server export (version 2) also has a **player entry** for each exported player with notes or tags:
+A server export (version 2) also has a **player entry** for each exported player with notes, tags or a Discord ID:
 
 ```json
-{"kind": "player", "steam_id": "76561197960287930", "notes": "Banned 2026-09 for aimbot", "tags": [["cheater", "#e8562a"]]}
+{"kind": "player", "steam_id": "76561197960287930", "notes": "Banned 2026-09 for aimbot", "tags": [["cheater", "#e8562a"]], "discord_id": "80351110224678912"}
 ```
+
+`discord_id` is present only when the player has one. Servers from before Discord IDs existed ignore it, so newer exports still import there.
 
 ## Import rules
 
 - Every value is validated again on import; malformed entries are skipped and counted. A `.fdx` file is never trusted.
 - A file entry whose `sha256` the server has already imported (from any source) is skipped.
 - Records that already exist (same Steam ID, name, IP, date and source) are skipped.
-- Tags are created if missing and added to the player. Notes are appended only if they are not already there.
+- Tags are created if missing and added to the player. Notes are appended only if they are not already there. A Discord ID is used only if the player has none.
+- Local addresses (`127.0.0.1`, `::1`) are dropped from records, as for every other source.
 
 ## Size
 

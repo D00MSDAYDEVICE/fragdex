@@ -8,12 +8,11 @@
   </div>
 </div>
 
-<div class="grid-2">
-  <div class="stack">
+<div class="import-grid">
   <section class="panel">
     <div class="panel-head"><h2>Upload files</h2></div>
     <div class="panel-body">
-      <form method="post" action="/import" enctype="multipart/form-data">
+      <form class="upload-form" method="post" action="/import" enctype="multipart/form-data">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <div class="dropzone" tabindex="0" role="button" aria-label="Choose files to upload">
           <svg class="i"><use href="#i-upload"/></svg>
@@ -21,13 +20,14 @@
           <span class="muted">.fdx scanner exports · .dm_91 demos · .log / .txt logs · .xlsx / .csv sheets · .zip archives — up to {{ max_mb }} MB per upload</span>
           <input type="file" name="files" multiple accept=".fdx,.dm_91,.dm_90,.dm_73,.log,.txt,.xlsx,.xlsm,.csv,.zip">
         </div>
-        <div class="form-actions"><button class="btn btn-primary" type="submit" data-upload-submit disabled><svg class="i"><use href="#i-upload"/></svg>Upload &amp; import</button></div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit" data-upload-submit disabled><svg class="i"><use href="#i-upload"/></svg>Upload &amp; import</button>
+          <a class="btn" href="/download/sample-import.csv" title="A spreadsheet with every column the importer reads, and examples of each accepted format"><svg class="i"><use href="#i-download"/></svg>Sample CSV</a>
+        </div>
       </form>
     </div>
   </section>
-  </div>
 
-  <div class="stack">
   <section class="panel">
     <div class="panel-head"><h2>Desktop scanner</h2><span class="badge badge-ok">Recommended for big collections</span></div>
     <div class="panel-body">
@@ -46,6 +46,29 @@
   </section>
 
   <section class="panel">
+    <div class="panel-head"><h2>Database cleanup</h2></div>
+    <div class="panel-body">
+      <ul class="tools">
+        {% for t in cleanup %}
+        <li>
+          <div>
+            <strong>{{ t.title }}</strong>
+            <p class="muted">{{ t.desc }}</p>
+          </div>
+          <div class="tool-action">
+            {% if t.count %}<span class="status status-queued">{{ "{:,}".format(t.count) }} {{ t.unit }}{{ 's' if t.count != 1 }}</span>{% else %}<span class="status status-done">Clean</span>{% endif %}
+            <form class="inline" method="post" action="/import/cleanup/{{ t.id }}" data-confirm="{{ t.title }}: change {{ "{:,}".format(t.count) }} {{ t.unit }}{{ 's' if t.count != 1 }}? Export a backup first if unsure.">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button class="btn btn-sm" type="submit" {{ 'disabled' if not t.count }}><svg class="i"><use href="#i-refresh"/></svg>Fix</button>
+            </form>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+
+  <section class="panel">
     <div class="panel-head"><h2>Watched folder</h2></div>
     <div class="panel-body">
       <dl class="kv">
@@ -58,7 +81,6 @@
       <p class="muted" style="margin:12px 0 0;font-size:13px">Drop files into the host folder set by <code>HOST_WATCH_DIR</code> in <code>.env</code> (default <code>/home/demos</code> on Linux, <code>C:\demos</code> on Windows). New demos, sheets and .fdx exports are imported once; log files are followed and only new lines are read.</p>
     </div>
   </section>
-  </div>
 </div>
 
 <section class="panel" style="margin-top:16px">
@@ -108,8 +130,8 @@
       <li><strong>Demos (.dm_91)</strong> — every player name + Steam ID in the demo's configstrings, including players who join or rename mid-match. Dated by the match start time. Demos contain no IP addresses.</li>
       <li><strong>minqlx chat logs</strong> — connect lines like <code>[2026-10-29 19:27:35] Name:76561197960287930:203.0.113.45 connected.</code></li>
       <li><strong>Server logs</strong> — lines with an info string (<code>n\Name\…\st\7656…</code>, <code>\ip\…</code>), or any line with exactly one Steam ID and one IP. Lines without a timestamp use the file's modified time.</li>
-      <li><strong>Spreadsheets (.xlsx / .csv)</strong> — columns matched by header: Player Name, Steam ID, Aliases, IP Address, Date. Steam IDs stored as numbers (e.g. <code>7.65611980147868E+16</code>) have lost digits and are skipped.</li>
-      <li>Re-importing the same file is detected and skipped; identical records are never duplicated.</li>
+      <li><strong>Spreadsheets (.xlsx / .csv)</strong> — columns matched by header: Player Name, Steam ID, Discord ID, Aliases, IP Address, Date (see <a href="/download/sample-import.csv">the sample</a>). Steam IDs stored as numbers (e.g. <code>7.65611980147868E+16</code>) have lost digits and are skipped.</li>
+      <li>Re-importing the same file is detected and skipped; identical records are never duplicated. Local addresses (127.0.0.1, ::1) are never recorded as a player's IP.</li>
     </ul>
   </div>
 </section>

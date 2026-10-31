@@ -352,8 +352,30 @@ def test_csv_import(tmp_path):
     p.write_text("Name,SteamID,IP,Aliases\nfoo,76561198000000009,1.2.3.4 5.6.7.8,bar / baz\n"
                  "bad,7.65612E+16,1.1.1.1,\n", encoding="utf-8")
     out, stats = parse_csv(str(p))
-    assert stats == {"rows": 2, "skipped_bad_id": 1, "skipped_no_id": 0}
+    assert stats == {"rows": 2, "skipped_bad_id": 1, "skipped_no_id": 0, "bad_discord": 0, "discord": {}}
     assert {(s.name, s.ip) for s in out} == {("foo", "1.2.3.4"), ("foo", "5.6.7.8"), ("bar", ""), ("baz", "")}
+
+
+def test_csv_discord_column(tmp_path):
+    p = tmp_path / "d.csv"
+    p.write_text("Player Name,Steam ID,Discord ID\na,76561198000000001,<@80351110224678912>\n"
+                 "b,76561198000000002,@Frost.bite\nc,76561198000000003,8.03511102246789E+16\n"
+                 "d,76561198000000004,\n", encoding="utf-8")
+    _out, stats = parse_csv(str(p))
+    assert stats["discord"] == {"76561198000000001": "80351110224678912", "76561198000000002": "frost.bite"}
+    assert stats["bad_discord"] == 1
+
+
+def test_discord_ids_and_local_ips():
+    from fragdex.importers.common import is_local_ip, normalize_discord_id
+    for good, want in (("80351110224678912", "80351110224678912"), ("<@!80351110224678912>", "80351110224678912"),
+                       ("https://discord.com/users/80351110224678912", "80351110224678912"),
+                       ("Some.User", "some.user"), ("@name_1", "name_1"), ("Old Name#1234", "Old Name#1234")):
+        assert normalize_discord_id(good) == want
+    for bad in ("", "x", "1234", "8.03511102246789E+16", 80351110224678912, 8.03e16, "has space", "a" * 33):
+        assert normalize_discord_id(bad) is None, bad
+    assert all(is_local_ip(x) for x in ("127.0.0.1", "127.1.2.3", "::1", "::ffff:127.0.0.1"))
+    assert not any(is_local_ip(x) for x in ("203.0.113.45", "10.0.0.1", "192.168.1.5", "2001:db8::1", "junk"))
 
 
 @pytest.mark.skipif(not os.path.exists(PLAYERS_XLSX), reason="Players.xlsx not available")

@@ -9,15 +9,16 @@ A .fdx file is gzip-compressed JSON Lines:
 Version 2 (a server export: Players > Export .fdx) adds:
   - sighting groups of any source (kind "log", "csv", "xlsx" or "manual"; "file" is the
     original file name, "sha256" empty)
-  - {"kind": "player", "steam_id": "...", "notes": "...", "tags": [[name, "#rrggbb"], ...]}
+  - {"kind": "player", "steam_id": "...", "notes": "...", "tags": [[name, "#rrggbb"], ...],
+     "discord_id": "..."}   (discord_id only when set; older servers ignore it)
 Everything read back is re-validated; the file is never trusted.
 """
 import gzip
 import json
 import re
 
-from .common import (Sighting, clean_name, normalize_ip, normalize_name, normalize_steam_id,
-                     parse_date)
+from .common import (Sighting, clean_name, normalize_discord_id, normalize_ip, normalize_name,
+                     normalize_steam_id, parse_date)
 
 FORMAT = "fragdex-scan"
 FORMAT_VERSION = 2          # newest version this code can read
@@ -51,8 +52,11 @@ class ExportWriter:
                      "server": server, "s": rows})
         self.entries += 1
 
-    def add_player(self, steam_id, notes, tags):
-        self._write({"kind": "player", "steam_id": steam_id, "notes": notes, "tags": tags})
+    def add_player(self, steam_id, notes, tags, discord_id=""):
+        entry = {"kind": "player", "steam_id": steam_id, "notes": notes, "tags": tags}
+        if discord_id:
+            entry["discord_id"] = discord_id
+        self._write(entry)
         self.entries += 1
 
     def close(self):
@@ -89,7 +93,8 @@ def read_export(path):
                         color = t[1] if isinstance(t[1], str) and COLOR_RE.match(t[1]) else "#e8562a"
                         tags.append((t[0].strip()[:40], color))
                 yield {"kind": "player", "steam_id": sid, "notes": str(e.get("notes") or "")[:20000].strip(),
-                       "tags": tags[:50]}
+                       "tags": tags[:50],
+                       "discord_id": normalize_discord_id(e.get("discord_id") or None) or ""}
                 continue
             kind = e.get("kind") if e.get("kind") in SIGHTING_KINDS else "demo"
             server = clean_name(str(e.get("server") or ""))[:80]

@@ -1,3 +1,4 @@
+import dataclasses
 import datetime as dt
 import ipaddress
 import sqlite3
@@ -5,7 +6,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 
 from . import config
-from .importers.common import search_key
+from .importers.common import LOCAL_IP_SQL, is_local_ip, search_key
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS players(
     ip_count INTEGER NOT NULL DEFAULT 0,
     alt_count INTEGER NOT NULL DEFAULT 0,
     notes TEXT NOT NULL DEFAULT '',
+    discord_id TEXT NOT NULL DEFAULT '',
     steam_persona TEXT,
     steam_avatar TEXT,
     steam_visibility INTEGER,
@@ -162,6 +164,10 @@ def init_db():
     with get_db() as conn:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        # columns added after the first release; existing rows get the default
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(players)")}
+        if "discord_id" not in cols:
+            conn.execute("ALTER TABLE players ADD COLUMN discord_id TEXT NOT NULL DEFAULT ''")
         # jobs interrupted by a restart go back in the queue
         conn.execute("UPDATE imports SET status='queued' WHERE status='running'")
 
@@ -185,11 +191,16 @@ def steam_api_key(conn):
 # ---------------------------------------------------------------- writes
 
 def add_sightings(conn, sightings, source, source_ref="", import_id=None):
-    """Insert sightings (inside the caller's transaction). Returns (added, steam_ids)."""
+    """Insert sightings (inside the caller's transaction). Returns (added, steam_ids).
+    Loopback IPs (127.0.0.1, ::1) are dropped: they are the server or a proxy, not the player."""
     ts = now()
     added = 0
     sids = set()
     for s in sightings:
+        if s.ip and is_local_ip(s.ip):
+            if not s.name:
+                continue   # nothing left to record
+            s = dataclasses.replace(s, ip="")
         conn.execute("INSERT OR IGNORE INTO players(steam_id, created_at, updated_at) VALUES(?,?,?)",
                      (s.steam_id, ts, ts))
         cur = conn.execute(
@@ -249,6 +260,31 @@ def recompute_alts(conn):
     conn.executemany("UPDATE players SET alt_count=? WHERE steam_id=?", updates)
 
 
+# ---------------------------------------------------------------- cleanup tools
+
+def count_local_ips(conn):
+    return conn.execute(f"SELECT COUNT(*) FROM sightings WHERE {LOCAL_IP_SQL}").fetchone()[0]
+
+
+def remove_local_ips(conn):
+    """Remove 127.x / ::1 from existing records (imported before they were filtered out).
+    A record keeps its name, date and source; one left with nothing, or identical to an existing
+    record once the IP is gone, is deleted. Returns (records changed, players affected)."""
+    sids = [r[0] for r in conn.execute(f"SELECT DISTINCT steam_id FROM sightings WHERE {LOCAL_IP_SQL}")]
+    if not sids:
+        return 0, 0
+    changed = conn.execute(f"DELETE FROM sightings WHERE {LOCAL_IP_SQL} AND name = ''").rowcount
+    changed += conn.execute(f"UPDATE OR IGNORE sightings SET ip = '' WHERE {LOCAL_IP_SQL}").rowcount
+    changed += conn.execute(f"DELETE FROM sightings WHERE {LOCAL_IP_SQL}").rowcount   # duplicates of the above
+    conn.execute("DELETE FROM players WHERE steam_id IN (%s) AND NOT EXISTS"
+                 " (SELECT 1 FROM sightings s WHERE s.steam_id = players.steam_id) AND notes = ''"
+                 " AND discord_id = '' AND NOT EXISTS (SELECT 1 FROM player_tags t WHERE t.steam_id = players.steam_id)"
+                 % ",".join("?" * len(sids)), sids)
+    refresh_players(conn, sids)
+    recompute_alts(conn)
+    return changed, len(sids)
+
+
 # ---------------------------------------------------------------- search
 
 SORTS = {
@@ -286,9 +322,10 @@ def build_filter(f):
                 OR p.steam_id IN (SELECT steam_id FROM sightings WHERE name_clean LIKE ? ESCAPE '\\'
                                   OR ip LIKE ? ESCAPE '\\')
                 OR lower(COALESCE(p.steam_persona, '')) LIKE ? ESCAPE '\\'
+                OR lower(p.discord_id) LIKE ? ESCAPE '\\'
                 OR lower(p.notes) LIKE ? ESCAPE '\\')""")
             prefix = _like(q)[1:]
-            params += [prefix, _like(key), prefix, _like(key), _like(key)]
+            params += [prefix, _like(key), prefix, _like(key), _like(q.lower().lstrip("@")), _like(key)]
     tag = f.get("tag")
     if tag:
         where.append("p.steam_id IN (SELECT steam_id FROM player_tags WHERE tag_id = ?)")

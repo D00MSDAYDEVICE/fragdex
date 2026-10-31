@@ -5,13 +5,13 @@ There are two kinds of backup. Use the one that fits; doing both does no harm.
 | | `.fdx` export | SQLite backup |
 |---|---|---|
 | Made from | the web page, any role | the server's command line |
-| Contains | every player record, notes and tags | everything: players, records, notes, tags, **users, settings, import history** |
+| Contains | every player record, notes, tags and Discord IDs | everything: players, records, notes, tags, **users, settings, import history** |
 | Restore into | any Fragdex server, merging with what is there | a Fragdex server, **replacing** its database |
 | Good for | regular backups, moving servers, sharing, merging | complete disaster recovery |
 
 ## .fdx export
 
-On the **Players** page, with no search or filters, press **Export .fdx**. That downloads every record of every player, with notes and tags, in one compressed file: about 330 KB for 1,700 players and 35,000 records.
+On the **Players** page, with no search or filters, press **Export .fdx**. That downloads every record of every player, with notes, tags and Discord IDs, in one compressed file: about 330 KB for 1,700 players and 35,000 records.
 
 **Restore** by uploading it on the **Import** page of the same or another Fragdex server. Records that already exist are skipped, tags are added and notes are appended only if different, so restoring into a server that still has some of the data is safe.
 

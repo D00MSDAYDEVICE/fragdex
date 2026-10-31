@@ -32,7 +32,25 @@ Editors can delete a single record with the bin icon, for example a wrong entry 
 
 ## Summary
 
-First and last seen, latest IP, number of names, IPs and linked accounts, and, with a Steam key: profile visibility (public, private or not found), VAC and game bans, days since the last ban, and when Steam was last checked.
+First and last seen, Discord ID, latest IP, number of names, IPs and linked accounts, and, with a Steam key: profile visibility (public, private or not found), VAC and game bans, days since the last ban, and when Steam was last checked.
+
+## Discord ID
+
+One Discord account per player, shown in the header (with a link to the Discord profile for numeric IDs), in the Summary and in the **Discord ID** column of the Players page. Editors can set, change or clear it in the **Discord ID** panel: leave the field empty and press **Save** to remove it.
+
+Accepted values:
+
+| Format | Example |
+|---|---|
+| Discord user ID (17–20 digits) | `80351110224678912` |
+| Mention | `<@80351110224678912>` |
+| Profile link | `https://discord.com/users/80351110224678912` |
+| Username | `frostbite`, `@frost.bite` (stored in lower case) |
+| Legacy username with tag | `Frostbite#1234` |
+
+Prefer the numeric user ID: it never changes, while usernames can. In Discord, enable **Settings → Advanced → Developer Mode**, then right-click a user and choose **Copy User ID**.
+
+Discord IDs can also come from the **Add** page, a spreadsheet with a *Discord ID* column, or a `.fdx` export from another Fragdex server. Imports only fill in an empty Discord ID; they never overwrite one that is already set.
 
 ## Tags and notes
 

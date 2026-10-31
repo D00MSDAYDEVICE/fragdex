@@ -166,7 +166,8 @@ def test_fdx_database_export_roundtrip(client, tmp_path):
     backup.write_bytes(r.content)
     entries = list(read_export(str(backup)))
     assert any(e["kind"] == "log" and any(s.ip == "203.0.113.45" for s in e["sightings"]) for e in entries)
-    assert {"kind": "player", "steam_id": sid, "notes": "test note", "tags": [("admin", "#e8562a")]} in entries
+    assert {"kind": "player", "steam_id": sid, "notes": "test note", "tags": [("admin", "#e8562a")],
+            "discord_id": ""} in entries
 
     # filters apply to the export too
     only = tmp_path / "only.fdx"
@@ -201,6 +202,117 @@ def test_alias_sort_and_steam_status(client):
     s = client.get("/admin/settings/steam.json").json()
     assert s["state"] == "nokey" and s["total"] > 0 and s["done"] + s["pending"] == s["total"]
     assert "data-steam-progress" in client.get("/admin/settings").text
+
+
+def test_discord_id(client, tmp_path):
+    from fragdex.importers.export import read_export
+
+    sid = "76561198000000042"
+    r = client.get("/add")
+    token = csrf_of(r.text)
+    assert 'name="discord_id"' in r.text
+    r = client.post("/add", data={"csrf": token, "steam_id": sid, "name": "^2Dc^7Guy",
+                                  "discord_id": "<@80351110224678912>"}, follow_redirects=True)
+    assert "Record added; Discord ID saved." in r.text
+    with db.get_db() as conn:
+        assert conn.execute("SELECT discord_id FROM players WHERE steam_id=?", (sid,)).fetchone()[0] \
+            == "80351110224678912"
+    # column between Steam ID and IP Address, linked to the Discord profile; searchable
+    r = client.get("/")
+    heads = re.findall(r"<th[^>]*>(?:<a[^>]*>)?([A-Za-z ]+)", r.text)
+    assert heads[heads.index("Steam ID") + 1] == "Discord ID" and heads[heads.index("Discord ID") + 1] == "IP Address"
+    assert "https://discord.com/users/80351110224678912" in r.text
+    assert sid in client.get("/?q=80351110224678912").text
+    # a Discord ID alone updates an existing player; bad values are refused
+    client.post("/add", data={"csrf": token, "steam_id": sid, "discord_id": "@Frost.Bite"})
+    r = client.post(f"/player/{sid}/discord", data={"csrf": token, "discord_id": "not valid!"}, follow_redirects=True)
+    assert "is not a Discord user ID" in r.text
+    with db.get_db() as conn:
+        assert conn.execute("SELECT discord_id FROM players WHERE steam_id=?", (sid,)).fetchone()[0] == "frost.bite"
+    # exports keep it
+    assert "discord_id" in client.get("/export.csv").text.splitlines()[0]
+    fdx = tmp_path / "d.fdx"
+    fdx.write_bytes(client.get(f"/export.fdx?q={sid}").content)
+    assert any(e.get("discord_id") == "frost.bite" for e in read_export(str(fdx)) if e["kind"] == "player")
+    client.post(f"/player/{sid}/discord", data={"csrf": token, "discord_id": ""})
+    with db.get_db() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM players WHERE discord_id != ''").fetchone()[0] == 0
+
+
+def test_local_ips_and_cleanup(client):
+    token = csrf_of(client.get("/add").text)
+    sid, other = "76561198000000043", "76561198000000044"
+    r = client.post("/add", data={"csrf": token, "steam_id": sid, "name": "Lh", "ip": "127.0.0.1"},
+                    follow_redirects=True)
+    assert "is a local address" in r.text
+    # new imports never record 127.x / ::1; the name and date are kept
+    log = (f"[2026-10-30 10:00:00] Lh:{sid}:127.0.0.1 connected.\n"
+           f"[2026-10-30 10:05:00] Other:{other}:127.0.0.1 connected.\n")
+    client.post("/import", data={"csrf": token}, files=[("files", ("local.log", log.encode(), "text/plain"))])
+    wait_imports()
+    with db.get_db() as conn:
+        rows = conn.execute("SELECT steam_id, name, ip FROM sightings WHERE steam_id IN (?,?)", (sid, other))
+        assert sorted(tuple(r) for r in rows) == [(sid, "Lh", ""), (other, "Other", "")]
+        # records imported before the filter existed
+        ts = db.now()
+        conn.executemany(
+            "INSERT INTO sightings(steam_id, name, name_clean, ip, seen_at, source, created_at) VALUES(?,?,?,?,?,?,?)",
+            [(sid, "Lh", "lh", "127.0.0.1", "2026-10-30 10:00:00", "log", ts),     # twin of an existing record
+             (sid, "Lh", "lh", "127.0.0.1", "2026-10-29 09:00:00", "log", ts),     # keeps its name and date
+             (sid, "", "", "::1", "2026-10-28 09:00:00", "log", ts),               # nothing left: deleted
+             (other, "Other", "other", "127.0.0.1", "2026-10-29 09:00:00", "log", ts)])
+        db.refresh_players(conn, [sid, other])
+        db.recompute_alts(conn)
+        assert conn.execute("SELECT alt_count FROM players WHERE steam_id=?", (sid,)).fetchone()[0] == 1
+    r = client.get("/import")
+    assert "Database cleanup" in r.text and "4 records" in r.text and "Sample CSV" in r.text
+    r = client.post("/import/cleanup/local-ips", data={"csrf": token}, follow_redirects=True)
+    assert "fixed 4 records of 2 players" in r.text and "Clean" in r.text
+    with db.get_db() as conn:
+        assert db.count_local_ips(conn) == 0
+        assert conn.execute("SELECT COUNT(*) FROM sightings WHERE steam_id=?", (sid,)).fetchone()[0] == 2
+        p = conn.execute("SELECT last_ip, ip_count, alt_count FROM players WHERE steam_id=?", (sid,)).fetchone()
+        assert tuple(p) == ("", 0, 0)
+    assert client.post("/import/cleanup/nope", data={"csrf": token}).status_code == 404
+
+
+def test_sample_csv_imports_every_column(client, tmp_path):
+    from fragdex.importers.spreadsheet import parse_csv
+
+    r = client.get("/download/sample-import.csv")
+    assert r.status_code == 200 and r.content.startswith(b"\xef\xbb\xbf")
+    assert r.content.decode("utf-8-sig").splitlines()[0] == "Player Name,Steam ID,Discord ID,Aliases,IP Address,Date"
+    p = tmp_path / "sample.csv"
+    p.write_bytes(r.content)
+    out, stats = parse_csv(str(p))
+    assert stats["rows"] == 4 and stats["skipped_bad_id"] == stats["skipped_no_id"] == stats["bad_discord"] == 0
+    assert len(stats["discord"]) == 2 and {s.steam_id for s in out} == {
+        "76561198000000001", "76561198000000003", "76561198000000007", "76561198000000017"}
+    assert {s.name for s in out if s.steam_id == "76561198000000017"} == {"Wraith", "wr4ith", "^4wraith^7.cfg"}
+
+
+def test_discord_column_added_to_old_database(tmp_path, monkeypatch):
+    import sqlite3
+
+    from fragdex import config
+    path = tmp_path / "old.sqlite3"
+    old = sqlite3.connect(path)
+    # the players table as released before Discord IDs existed
+    create = re.search(r"CREATE TABLE IF NOT EXISTS players\(.*?\);", db.SCHEMA, re.S).group(0)
+    old.execute(create.replace("    discord_id TEXT NOT NULL DEFAULT '',\n", ""))
+    assert "discord_id" not in [r[1] for r in old.execute("PRAGMA table_info(players)")]
+    old.execute("INSERT INTO players(steam_id, last_name, notes, created_at, updated_at)"
+                " VALUES('76561198000000001', 'Keep', 'my note', 'x', 'y')")
+    old.commit()
+    old.close()
+    monkeypatch.setattr(config, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(config, "UPLOAD_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setattr(config, "DB_PATH", str(path))
+    db.init_db()
+    db.init_db()   # idempotent
+    with db.get_db() as conn:
+        row = dict(conn.execute("SELECT * FROM players").fetchone())
+    assert row["discord_id"] == "" and row["last_name"] == "Keep" and row["notes"] == "my note"
 
 
 def test_steam_errors_never_show_the_key():

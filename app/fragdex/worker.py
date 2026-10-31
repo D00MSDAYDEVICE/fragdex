@@ -97,8 +97,15 @@ def _mark_imported(conn, sha, filename, import_id):
                      (sha, filename, import_id, db.now()))
 
 
+def _set_discord(conn, sid, discord):
+    """Fill in a player's Discord ID from an import; one set by hand (or earlier) is kept."""
+    return conn.execute("UPDATE players SET discord_id=?, updated_at=? WHERE steam_id=? AND discord_id=''",
+                        (discord, db.now(), sid)).rowcount
+
+
 def _apply_player_meta(conn, e):
-    """Notes and tags from a Fragdex export: notes are appended when new, tags are added."""
+    """Notes, tags and Discord ID from a Fragdex export: notes are appended when new, tags are added,
+    the Discord ID fills an empty one."""
     sid = e["steam_id"]
     ts = db.now()
     conn.execute("INSERT OR IGNORE INTO players(steam_id, created_at, updated_at) VALUES(?,?,?)", (sid, ts, ts))
@@ -107,6 +114,8 @@ def _apply_player_meta(conn, e):
         if e["notes"] not in old:
             conn.execute("UPDATE players SET notes=?, updated_at=? WHERE steam_id=?",
                          ((old + "\n\n" + e["notes"]) if old else e["notes"], ts, sid))
+    if e.get("discord_id"):
+        _set_discord(conn, sid, e["discord_id"])
     for name, color in e["tags"]:
         conn.execute("INSERT OR IGNORE INTO tags(name, color) VALUES(?,?)", (name, color))
         conn.execute("INSERT OR IGNORE INTO player_tags(steam_id, tag_id) SELECT ?, id FROM tags WHERE name=?",
@@ -189,6 +198,8 @@ def process(conn, job):
             msg += f"; skipped {stats['skipped_bad_id']} with damaged/invalid Steam IDs"
         if stats["skipped_no_id"]:
             msg += f"; skipped {stats['skipped_no_id']} without a Steam ID"
+        if stats["bad_discord"]:
+            msg += f"; ignored {stats['bad_discord']} invalid Discord IDs"
     elif kind == "log":
         raw, new_offset = _read_log(conn, job)
         sightings, stats = parse_log_text(raw.decode("utf-8", errors="replace"), os.path.getmtime(path))
@@ -200,6 +211,10 @@ def process(conn, job):
     with db.transaction(conn):
         added, sids = db.add_sightings(conn, sightings, source, name, job["id"])
         db.refresh_players(conn, sids)
+        if kind == "sheet":
+            discord_set = sum(_set_discord(conn, sid, d) for sid, d in stats["discord"].items())
+            if discord_set:
+                msg += f"; {discord_set} Discord IDs added"
         if kind == "demo":
             _mark_imported(conn, job["sha256"], name, job["id"])
         if new_offset is not None:

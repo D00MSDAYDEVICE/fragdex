@@ -22,8 +22,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__, auth, config, db, steam, worker
-from .importers.common import (STEAM64_RE, Sighting, clean_name, file_kind, normalize_ip,
-                               normalize_name, normalize_steam_id, parse_date)
+from .importers.common import (STEAM64_RE, Sighting, clean_name, file_kind, is_local_ip, normalize_discord_id,
+                               normalize_ip, normalize_name, normalize_steam_id, parse_date)
 from .importers.export import FORMAT_VERSION, ExportWriter
 from .qlcolors import qlname
 from .scanner_build import build_script
@@ -54,6 +54,8 @@ templates = Jinja2Templates(directory=os.path.join(HERE, "templates"))
 templates.env.filters["qlname"] = qlname
 templates.env.filters["clean"] = clean_name
 templates.env.globals["steam_url"] = lambda sid: f"https://steamcommunity.com/profiles/{sid}"
+# Discord profile link for a numeric user ID; usernames have no public URL
+templates.env.globals["discord_url"] = lambda d: f"https://discord.com/users/{d}" if d and d.isdigit() else ""
 templates.env.globals["has_role"] = auth.has_role
 templates.env.globals["version"] = __version__
 
@@ -320,14 +322,15 @@ def export_csv(request: Request):
             _total, rows = db.search_players(conn, f, limit=-1, offset=0)
             buf = io.StringIO()
             w = csv.writer(buf)
-            w.writerow(["steam_id", "name", "name_raw", "last_ip", "first_seen", "last_seen", "aliases", "ips",
+            w.writerow(["steam_id", "discord_id", "name", "name_raw", "last_ip", "first_seen", "last_seen", "aliases", "ips",
                         "linked_accounts", "tags", "notes", "steam_persona", "vac_bans", "game_bans",
                         "steam_profile"])
             for i in range(0, len(rows), 500):
                 chunk = db.attach_details(conn, rows[i:i + 500])
                 for p in chunk:
                     w.writerow([_csv_safe(x) for x in (
-                        p["steam_id"], clean_name(p["last_name"]), p["last_name"], p["last_ip"], p["first_seen"],
+                        p["steam_id"], p["discord_id"], clean_name(p["last_name"]), p["last_name"], p["last_ip"],
+                        p["first_seen"],
                         p["last_seen"], " | ".join(n["name"] for n in p["names"]),
                         " | ".join(x["ip"] for x in p["ips"]), p["alt_count"],
                         " | ".join(t["name"] for t in p["tags"]), p["notes"], p["steam_persona"], p["vac_bans"],
@@ -374,9 +377,9 @@ def export_fdx(request: Request):
                                       JOIN tags t ON t.id = pt.tag_id WHERE pt.steam_id IN ({players_sql})
                                       ORDER BY t.name""", params):
                 tags[r["steam_id"]].append([r["name"], r["color"]])
-            for r in conn.execute(f"SELECT p.steam_id, p.notes FROM players p{where}", params):
-                if r["notes"] or r["steam_id"] in tags:
-                    w.add_player(r["steam_id"], r["notes"], tags.get(r["steam_id"], []))
+            for r in conn.execute(f"SELECT p.steam_id, p.notes, p.discord_id FROM players p{where}", params):
+                if r["notes"] or r["discord_id"] or r["steam_id"] in tags:
+                    w.add_player(r["steam_id"], r["notes"], tags.get(r["steam_id"], []), r["discord_id"])
         w.close()
         yield buf.getvalue()
 
@@ -428,6 +431,22 @@ async def player_notes(request: Request, sid: str):
         conn.execute("UPDATE players SET notes=?, updated_at=? WHERE steam_id=?",
                      (str(form.get("notes", ""))[:20000], db.now(), sid))
     flash(request, "Notes saved.")
+    return back(f"/player/{sid}")
+
+
+@app.post("/player/{sid}/discord")
+async def player_discord(request: Request, sid: str):
+    require(request, "editor")
+    valid_sid(sid)
+    form = await checked_form(request)
+    raw = str(form.get("discord_id", "")).strip()
+    discord = normalize_discord_id(raw) if raw else ""
+    if discord is None:
+        flash(request, f"'{raw[:40]}' is not a Discord user ID (17-20 digits) or username.", "error")
+        return back(f"/player/{sid}")
+    with db.get_db() as conn:
+        conn.execute("UPDATE players SET discord_id=?, updated_at=? WHERE steam_id=?", (discord, db.now(), sid))
+    flash(request, "Discord ID saved." if discord else "Discord ID removed.")
     return back(f"/player/{sid}")
 
 
@@ -507,20 +526,41 @@ def _manual_add(request, user, sid, form, fail_url):
     if ip is None:
         flash(request, f"'{ip_raw}' is not a valid IP address.", "error")
         return back(fail_url)
-    seen = parse_date(str(form.get("seen_at", "")).replace("T", " ")) if form.get("seen_at") else ""
-    if not name and not ip:
-        flash(request, "Enter at least a name or an IP address.", "error")
+    if ip and is_local_ip(ip):
+        flash(request, f"{ip} is a local address (the server itself), not a player's IP, so it isn't recorded.",
+              "error")
         return back(fail_url)
+    discord_raw = str(form.get("discord_id", "")).strip()
+    discord = normalize_discord_id(discord_raw) if discord_raw else ""
+    if discord is None:
+        flash(request, f"'{discord_raw[:40]}' is not a Discord user ID (17-20 digits) or username.", "error")
+        return back(fail_url)
+    seen = parse_date(str(form.get("seen_at", "")).replace("T", " ")) if form.get("seen_at") else ""
+    if not name and not ip and not discord:
+        flash(request, "Enter at least a name, an IP address or a Discord ID." if "discord_id" in form
+              else "Enter at least a name or an IP address.", "error")
+        return back(fail_url)
+    added = 0
     with db.get_db() as conn, db.transaction(conn):
-        added, _ = db.add_sightings(conn, [Sighting(steam_id=sid, name=name, ip=ip, seen_at=seen)], "manual",
-                                    f"added by {user['username']}")
+        if name or ip:
+            added, _ = db.add_sightings(conn, [Sighting(steam_id=sid, name=name, ip=ip, seen_at=seen)], "manual",
+                                        f"added by {user['username']}")
+        else:
+            ts = db.now()
+            conn.execute("INSERT OR IGNORE INTO players(steam_id, created_at, updated_at) VALUES(?,?,?)", (sid, ts, ts))
+        if discord:
+            conn.execute("UPDATE players SET discord_id=? WHERE steam_id=?", (discord, sid))
         notes = str(form.get("notes", "")).strip()
         if notes:
             conn.execute("UPDATE players SET notes = CASE WHEN notes = '' THEN ? ELSE notes || char(10) || ? END "
                          "WHERE steam_id=?", (notes, notes, sid))
         db.refresh_players(conn, [sid])
         db.recompute_alts(conn)
-    flash(request, "Record added." if added else "That exact record already exists.")
+    if name or ip:
+        msg = "Record added." if added else "That exact record already exists."
+        flash(request, msg[:-1] + "; Discord ID saved." if discord else msg)
+    else:
+        flash(request, "Discord ID saved.")
     return back(f"/player/{sid}")
 
 
@@ -595,7 +635,9 @@ def import_page(request: Request):
         jobs = [dict(r) for r in conn.execute("SELECT * FROM imports ORDER BY id DESC LIMIT 200")]
         counts = {r["status"]: r["n"] for r in conn.execute("SELECT status, COUNT(*) n FROM imports GROUP BY status")}
         watched = conn.execute("SELECT COUNT(*) FROM watch_files").fetchone()[0]
-    return render(request, "import.html", user, nav="import", jobs=jobs, counts=counts,
+        cleanup = [dict(id=k, title=t["title"], desc=t["desc"], unit=t["unit"], count=t["count"](conn))
+                   for k, t in CLEANUP_TOOLS.items()]
+    return render(request, "import.html", user, nav="import", jobs=jobs, counts=counts, cleanup=cleanup,
                   active=counts.get("queued", 0) + counts.get("running", 0), watch_dir=config.WATCH_DIR,
                   watch_exists=os.path.isdir(config.WATCH_DIR), watched=watched, wstatus=worker.status,
                   max_mb=config.MAX_UPLOAD_MB, scanner_exe=os.path.isfile(SCANNER_EXE))
@@ -670,6 +712,57 @@ async def import_clear(request: Request):
         n = conn.execute("DELETE FROM imports WHERE status IN ('done','duplicate')").rowcount
     flash(request, f"Cleared {n} finished entries from the history (imported data is kept).")
     return back("/import")
+
+
+# Database cleanup tools on the Import page: count() says how much there is to fix, run() fixes it and
+# returns (changed, players affected). Add new tools here; the page lists them in this order.
+CLEANUP_TOOLS = {
+    "local-ips": {
+        "title": "Remove local IP addresses",
+        "desc": "127.0.0.1 and ::1 are the server itself (or a proxy), not a player's address, and linked every "
+                "player seen through it. New imports skip them; this removes them from records imported before.",
+        "unit": "record",
+        "count": db.count_local_ips,
+        "run": db.remove_local_ips,
+    },
+}
+
+
+@app.post("/import/cleanup/{tool}")
+async def import_cleanup(request: Request, tool: str):
+    require(request, "editor")
+    await checked_form(request)
+    t = CLEANUP_TOOLS.get(tool)
+    if not t:
+        raise NotFound()
+    with db.get_db() as conn, db.transaction(conn):
+        changed, players = t["run"](conn)
+    flash(request, f"{t['title']}: fixed {changed:,} {t['unit']}{'s' if changed != 1 else ''} "
+                   f"of {players:,} player{'s' if players != 1 else ''}." if changed else
+                   f"{t['title']}: nothing to fix.")
+    return back("/import")
+
+
+# Every column the spreadsheet importer reads, showing each accepted format once
+SAMPLE_ROWS = [
+    ["Player Name", "Steam ID", "Discord ID", "Aliases", "IP Address", "Date"],
+    ["^1Rail^7gun", "76561198000000001", "80351110224678912", "railgod, ^1R^7ailgun", "203.0.113.45",
+     "2026-10-29 19:27:35"],
+    ["Frostbite", "STEAM_0:1:19867137", "frostbite", "frosty", "198.51.100.7 198.51.100.8", "2026-10-28"],
+    ["^3Halcyon", "[U:1:39734279]", "", "", "192.0.2.14", ""],
+    ["Wraith", "https://steamcommunity.com/profiles/76561198000000017", "", "wr4ith | ^4wraith^7.cfg", "",
+     "2026-09-14 21:05"],
+]
+
+
+@app.get("/download/sample-import.csv")
+def sample_csv(request: Request):
+    """A spreadsheet to start from: UTF-8 with a BOM so Excel keeps the colour-coded names intact."""
+    require(request, "editor")
+    buf = io.StringIO()
+    csv.writer(buf).writerows(SAMPLE_ROWS)
+    return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="fragdex-import-sample.csv"'})
 
 
 # ---------------------------------------------------------------- tags

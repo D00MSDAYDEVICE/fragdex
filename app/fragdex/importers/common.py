@@ -85,6 +85,39 @@ def normalize_ip(value):
     return str(ip)
 
 
+def is_local_ip(ip) -> bool:
+    """127.x / ::1 (also IPv4-mapped): the server itself, a listen server or a proxy. Never a player's address."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    mapped = getattr(addr, "ipv4_mapped", None)
+    return addr.is_loopback or bool(mapped and mapped.is_loopback)
+
+
+# SQL test for the same addresses as stored (normalize_ip writes the canonical form)
+LOCAL_IP_SQL = "(ip GLOB '127.*' OR ip = '::1' OR ip GLOB '::ffff:127.*')"
+
+DISCORD_ID_RE = re.compile(r"^(?:<@!?|.*discord(?:app)?\.com/users/)?(\d{17,20})>?/?$", re.I)
+DISCORD_USER_RE = re.compile(r"^@?([a-z0-9_.]{2,32}|[^#@:`]{2,32}#\d{4})$", re.I)
+
+
+def normalize_discord_id(value):
+    """Discord user ID (also from <@mention> or a discord.com/users/ link), or a username. None if invalid."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if isinstance(value, (int, float)) or re.fullmatch(r"\d(\.\d+)?[eE]\+\d+", s):
+        return None   # a number cell: Excel keeps 15 digits, so an 18-digit ID has already lost some
+    m = DISCORD_ID_RE.match(s)
+    if m:
+        return m.group(1)
+    m = DISCORD_USER_RE.match(s)
+    if m and not s.isdigit():
+        return m.group(1) if "#" in m.group(1) else m.group(1).lower()
+    return None
+
+
 def clean_name(name: str) -> str:
     """Strip Quake colour codes and collapse whitespace."""
     return " ".join(COLOR_RE.sub("", name or "").split())

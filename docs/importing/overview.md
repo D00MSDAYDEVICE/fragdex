@@ -20,6 +20,18 @@ Accepted files:
 
 The maximum size of one upload is `MAX_UPLOAD_MB` (1024 MB by default). For big demo collections, [fragdex-scan](fragdex-scan.md) is far faster: it uploads a file about 1/10,000th the size of the demos.
 
+**Sample CSV**, next to **Upload & import**, downloads `fragdex-import-sample.csv`: a spreadsheet with every column the importer reads (Player Name, Steam ID, Discord ID, Aliases, IP Address, Date) and an example of each accepted format. Replace the example rows with your own and upload it. See [Supported sources → Spreadsheets](sources.md#spreadsheets).
+
+## Database cleanup
+
+The **Database cleanup** panel lists maintenance tools that repair data already in the database. Each tool shows how much it would change (or **Clean** when there is nothing to do); **Fix** runs it after a confirmation. Like importing, it needs the **editor** role. Export a [`.fdx` backup](../guide/export.md) first if you are unsure.
+
+| Tool | What it does |
+|---|---|
+| **Remove local IP addresses** | `127.0.0.1` and `::1` are the server itself (a listen server, or a proxy in front of it), never a player's real address, and any IP shared by several accounts [links them](../guide/linked-accounts.md). New imports skip these addresses automatically; this tool removes them from records imported before. Each record keeps its name, date and source; a record left with nothing else, or identical to another once the IP is gone, is deleted. Summaries and linked accounts are recalculated. |
+
+More tools will be added to this panel over time.
+
 ## Watched folder
 
 Fragdex checks a folder on the host every `WATCH_INTERVAL` seconds (60 by default) and imports new or changed files, including files in subfolders and inside `.zip` archives.
@@ -55,6 +67,7 @@ You can import freely without worrying about duplicates:
 
 - **The same file is never imported twice.** Files are recognised by their SHA-256 hash, whichever way they arrive: a demo uploaded directly, found in the watched folder, inside a `.zip` or listed in a `.fdx` is imported once.
 - **Identical records are never stored twice.** A record is the combination of Steam ID, name, IP, date and source.
+- **Local addresses are never recorded.** `127.0.0.1` and `::1` are dropped from every import; the rest of the record (name, date) is kept.
 
 So re-uploading an archive that contains some new and some old demos only imports the new ones.
 

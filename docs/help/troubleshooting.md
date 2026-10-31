@@ -71,6 +71,10 @@ See [Users and roles → Forgotten admin password](../administration/users.md#fo
 
 The **Details** column in the import history says why. Most often the Steam IDs were saved by Excel as numbers (`7.65611980147868E+16`), which loses their last digits. See [Supported sources → Spreadsheets](../importing/sources.md#spreadsheets).
 
+## Many unrelated players are linked through 127.0.0.1
+
+Older versions recorded `127.0.0.1` when players connected through the server machine itself or a local proxy, which linked all of them together. Current versions never record local addresses. Open **Import → Database cleanup** and press **Fix** next to **Remove local IP addresses** to clean up the existing records. See [Database cleanup](../importing/overview.md#database-cleanup).
+
 ## Steam data does not appear
 
 - Check **Settings → Steam Web API** for an error message. `HTTP 403` usually means an invalid key.
