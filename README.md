@@ -1,6 +1,6 @@
 # Fragdex
 
-**Documentation: <https://d00msdaydevice.github.io/fragdex/>**
+**Documentation: <https://d00msdaydevice.github.io/fragdex/>** · What's new: [CHANGELOG.md](CHANGELOG.md)
 
 **Fragdex is a self-hosted, login-protected player database built for Quake Live server administrators.** It consolidates player information from demos, server logs, chat logs, and spreadsheets into a centralized, searchable database. Search by name, alias, Steam ID, IP address, or CIDR range to investigate player histories, track past names and IPs, identify potential alternate accounts sharing an IP, and organize records with notes, tags, and ban status. Optional Steam Web API integration adds profile avatars, current Steam names, and VAC or game-ban information, while advanced filtering and CSV exports make player research and moderation easier.
 
@@ -297,6 +297,7 @@ covers the player data and is easier to move or share.
 ├── deployfragdex.ps1         Windows installer (Docker Desktop)
 ├── docker-compose.yml        app + Caddy (TLS) services
 ├── .env.example              all settings, documented
+├── CHANGELOG.md              what changed in each version
 ├── caddy/entrypoint.sh       builds the Caddyfile from TLS_MODE / SITE_HOST / ports
 ├── certs/                    your own cert.pem + key.pem for TLS_MODE=custom
 ├── docs/  mkdocs.yml         documentation site (GitHub Pages, built by .github/workflows/docs.yml)

@@ -52,6 +52,9 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite
+  - pymdownx.snippets:      # docs/project/changelog.md includes CHANGELOG.md from the repository root
+      base_path: ["."]
+      check_paths: true
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
@@ -93,5 +96,6 @@ nav:
   - Help:
       - Troubleshooting: help/troubleshooting.md
   - Project:
+      - Changelog: project/changelog.md
       - Development: project/development.md
       - License: project/license.md
