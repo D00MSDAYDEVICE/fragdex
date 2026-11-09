@@ -7,8 +7,9 @@ A .fdx file is gzip-compressed JSON Lines:
             "map": "campgrounds", "server": "House of Blud",
             "s": [[steam_id, name, ip, seen_at], ...]}
 Version 2 (a server export: Players > Export .fdx) adds:
-  - sighting groups of any source (kind "log", "csv", "xlsx" or "manual"; "file" is the
+  - sighting groups of any source (kind "log", "csv", "xlsx", "manual", "api" or "fragq"; "file" is the
     original file name, "sha256" empty)
+  - "verified": true on an "api" group added with a game server's key
   - {"kind": "player", "steam_id": "...", "notes": "...", "tags": [[name, "#rrggbb"], ...],
      "discord_id": "..."}   (discord_id only when set; older servers ignore it)
 Everything read back is re-validated; the file is never trusted.
@@ -23,7 +24,7 @@ from .common import (Sighting, clean_name, normalize_discord_id, normalize_ip, n
 FORMAT = "fragdex-scan"
 FORMAT_VERSION = 2          # newest version this code can read
 SCAN_VERSION = 1            # what fragdex-scan writes, so older servers still accept it
-SIGHTING_KINDS = ("demo", "log", "csv", "xlsx", "manual")
+SIGHTING_KINDS = ("demo", "log", "csv", "xlsx", "manual", "api", "fragq")
 MAX_LINE = 8 << 20
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -47,9 +48,12 @@ class ExportWriter:
         self.add_rows(file, kind, sha256, size, [[s.steam_id, s.name, s.ip, s.seen_at] for s in sightings],
                       map_name, server)
 
-    def add_rows(self, file, kind, sha256, size, rows, map_name="", server=""):
-        self._write({"file": file, "kind": kind, "sha256": sha256, "size": size, "map": map_name,
-                     "server": server, "s": rows})
+    def add_rows(self, file, kind, sha256, size, rows, map_name="", server="", verified=False):
+        entry = {"file": file, "kind": kind, "sha256": sha256, "size": size, "map": map_name,
+                 "server": server, "s": rows}
+        if verified:
+            entry["verified"] = True
+        self._write(entry)
         self.entries += 1
 
     def add_player(self, steam_id, notes, tags, discord_id=""):
@@ -96,7 +100,8 @@ def read_export(path):
                        "tags": tags[:50],
                        "discord_id": normalize_discord_id(e.get("discord_id") or None) or ""}
                 continue
-            kind = e.get("kind") if e.get("kind") in SIGHTING_KINDS else "demo"
+            # demos and logs count as verified Steam IDs, so a record that doesn't say what it is can't be one
+            kind = e.get("kind") if e.get("kind") in SIGHTING_KINDS else "manual"
             server = clean_name(str(e.get("server") or ""))[:80]
             sightings = []
             for row in e.get("s") or []:
@@ -116,4 +121,5 @@ def read_export(path):
                 "map": str(e.get("map") or "")[:64],
                 "server": server,
                 "sightings": sightings,
+                "verified": kind == "api" and e.get("verified") is True,
             }

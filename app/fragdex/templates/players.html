@@ -2,8 +2,8 @@
 {% block title %}Players{% endblock %}
 {% macro sort_th(key, label, cls="") -%}
   {%- set is_cur = f.sort == key or (not f.sort and key == 'last_seen') -%}
-  {%- set cur_dir = f.dir or ('asc' if key in ('name', 'steam_id') else 'desc') -%}
-  {%- set next_dir = ('desc' if cur_dir == 'asc' else 'asc') if is_cur else ('asc' if key in ('name', 'steam_id') else 'desc') -%}
+  {%- set cur_dir = f.dir or ('asc' if key in ('name', 'steam_id', 'discord') else 'desc') -%}
+  {%- set next_dir = ('desc' if cur_dir == 'asc' else 'asc') if is_cur else ('asc' if key in ('name', 'steam_id', 'discord') else 'desc') -%}
   <th class="{{ cls }}"><a href="?{{ filter_qs(f, sort=key, dir=next_dir, page=None) }}{{ '&per=' ~ per if per != 50 }}" class="{{ 'sorted' if is_cur }}">{{ label }}{% if is_cur %} {{ '▲' if cur_dir == 'asc' else '▼' }}{% endif %}</a></th>
 {%- endmacro %}
 {% block content %}
@@ -27,7 +27,7 @@
   <div class="search-row">
     <div class="search-box">
       <svg class="i"><use href="#i-search"/></svg>
-      <input type="search" name="q" value="{{ f.q }}" placeholder="Search name, alias, Steam ID, Discord ID, IP or CIDR (1.2.3.0/24), notes…" autofocus>
+      <input type="search" name="q" value="{{ f.q }}" placeholder="Search name, alias, Steam ID, Discord, IP or CIDR (1.2.3.0/24), notes…" autofocus>
     </div>
     <button class="btn btn-primary" type="submit">Search</button>
     {% if filters_active %}<a class="btn btn-ghost" href="/"><svg class="i"><use href="#i-x"/></svg>Clear</a>{% endif %}
@@ -40,7 +40,7 @@
     </select>
     <select name="source" data-autosubmit aria-label="Source">
       <option value="">Any source</option>
-      {% for s in sources %}<option value="{{ s }}" {{ 'selected' if f.source == s }}>{{ s|upper if s in ('csv','xlsx','api') else s|capitalize }}</option>{% endfor %}
+      {% for s in sources %}<option value="{{ s }}" {{ 'selected' if f.source == s }}>{{ 'FragQ' if s == 'fragq' else (s|upper if s in ('csv','xlsx','api') else s|capitalize) }}</option>{% endfor %}
     </select>
     {% if steam_enabled %}
     <select name="bans" data-autosubmit aria-label="Ban status">
@@ -52,6 +52,8 @@
     {% endif %}
     <span class="sep"></span>
     <label class="check"><input type="checkbox" name="has_ip" value="1" data-autosubmit {{ 'checked' if f.has_ip }}>Has IP</label>
+    <label class="check"><input type="checkbox" name="has_discord" value="1" data-autosubmit {{ 'checked' if f.has_discord }}>Has Discord</label>
+    <label class="check"><input type="checkbox" name="verified" value="1" data-autosubmit {{ 'checked' if f.verified }}>Verified Steam ID</label>
     <label class="check"><input type="checkbox" name="has_alts" value="1" data-autosubmit {{ 'checked' if f.has_alts }}>Has linked accounts</label>
     <span class="sep"></span>
     <span class="daterange">Last seen
@@ -81,7 +83,7 @@
     <tr>
       {{ sort_th('name', 'Player') }}
       {{ sort_th('steam_id', 'Steam ID') }}
-      <th>Discord ID</th>
+      {{ sort_th('discord', 'Discord') }}
       <th>IP Address{% include "_ip_toggle.html" %}</th>
       {% set by_aliases = f.sort == 'aliases' %}
       <th>History<a class="th-toggle" href="?{{ filter_qs(f, sort=None if by_aliases else 'aliases', dir=None if by_aliases else 'desc', page=None) }}{{ '&per=' ~ per if per != 50 }}" aria-pressed="{{ 'true' if by_aliases else 'false' }}" title="{{ 'Back to newest first' if by_aliases else 'Sort by most aliases' }}" aria-label="Sort by most aliases"><svg class="i"><use href="#i-sort-desc"/></svg></a></th>
@@ -106,9 +108,10 @@
         <span class="sid">
           <a class="steam-link" href="{{ steam_url(p.steam_id) }}" target="_blank" rel="noopener noreferrer" title="Open Steam profile"><svg class="i"><use href="#i-steam"/></svg></a>
           <code>{{ p.steam_id }}</code>
+          {% if p.steam_verified %}<span class="verified-mark" title="Verified: this Steam ID came from a demo, a log or a game server">✓</span>{% endif %}
         </span>
       </td>
-      <td class="c-discord{{ ' empty' if not p.discord_id }}">{% if p.discord_id %}<span class="sid">{% if discord_url(p.discord_id) %}<a class="discord-link" href="{{ discord_url(p.discord_id) }}" target="_blank" rel="noopener noreferrer" title="Open Discord profile"><svg class="i"><use href="#i-discord"/></svg></a>{% else %}<span class="discord-link" title="Discord username"><svg class="i"><use href="#i-discord"/></svg></span>{% endif %}<code>{{ p.discord_id }}</code></span>{% else %}<span class="faint">—</span>{% endif %}</td>
+      <td class="c-discord{{ ' empty' if not p.discord_id }}">{% if p.discord_id %}<span class="sid">{% if discord_url(p.discord_id) %}<a class="discord-link" href="{{ discord_url(p.discord_id) }}" target="_blank" rel="noopener noreferrer" title="Open Discord profile"><svg class="i"><use href="#i-discord"/></svg></a>{% else %}<span class="discord-link" title="Discord username"><svg class="i"><use href="#i-discord"/></svg></span>{% endif %}<button type="button" class="discord-copy" data-copy="{{ p.discord_id }}" title="{{ 'Discord ID ' ~ p.discord_id ~ ': click to copy' if p.discord_name else 'Click to copy' }}">{% if p.discord_name %}<span class="discord-name">{{ p.discord_name }}</span>{% else %}<code>{{ p.discord_id }}</code>{% endif %}<svg class="i"><use href="#i-copy"/></svg></button>{% if p.discord_status %}<span class="link-status link-{{ p.discord_status }}" title="{{ 'Proved to FragQ: this Steam account belongs to this Discord account' if p.discord_status == 'verified' else 'Typed into FragQ: nothing proves the Steam account is theirs' }}">{{ p.discord_status }}</span>{% endif %}</span>{% else %}<span class="faint">—</span>{% endif %}</td>
       <td class="c-ip">{% if p.last_ip %}<span class="ip">{{ p.last_ip }}</span>{% else %}<span class="faint">—</span>{% endif %}</td>
       <td class="c-icons">
         <div class="icons">

@@ -25,6 +25,7 @@ All of these can be changed at any time with **Edit**, without a new key. Change
 | **See IP addresses** | Include IP addresses in replies and allow searching by IP. Off by default. |
 | **See notes** | Include player notes in replies and allow searching them. Off by default. |
 | **Add records** | Allow `POST /records`, which adds records to the database. Needed by the minqlx plugin. |
+| **Game server** | Records added with this key count as [verified Steam IDs](../administration/fragq.md#verified-steam-ids). Only for a game server's plugin. |
 
 Every key can read players: names, aliases, Steam IDs, tags, Discord IDs, Steam bans and linked accounts. A key without **See IP addresses** still sees *which* accounts are linked, but not the shared addresses.
 
@@ -82,18 +83,19 @@ Search and filter players, like the Players page. Parameters, all optional:
 |---|---|
 | `q` | Name, alias, Steam name, Steam ID, Discord ID; also IP address or CIDR range (with **See IP addresses**) and notes (with **See notes**). |
 | `tag` | Tag name. |
-| `source` | `demo`, `log`, `xlsx`, `csv`, `manual` or `api`. |
+| `source` | `demo`, `log`, `xlsx`, `csv`, `manual`, `api` or `fragq`. |
 | `bans` | `vac`, `any` or `clean`. |
-| `has_ip`, `linked` | `1` for only players with an IP address / with linked accounts. |
+| `has_ip`, `has_discord`, `verified`, `linked` | `1` for only players with an IP address / with a Discord ID / with a verified Steam ID / with linked accounts. |
 | `seen_from`, `seen_to` | Last-seen date range, `YYYY-MM-DD`. |
-| `sort`, `dir` | `last_seen` (default), `first_seen`, `name`, `steam_id`, `aliases`, `ips` or `alts`; `desc` (default) or `asc`. |
+| `sort`, `dir` | `last_seen` (default), `first_seen`, `name`, `steam_id`, `discord`, `aliases`, `ips` or `alts`; `desc` (default) or `asc`. |
 | `limit`, `offset` | Page size (1–500, default 50) and position. |
 
 ```json
 {"total": 2, "offset": 0, "limit": 50, "players": [
   {"steam_id": "76561197960287930", "name": "Railgun", "name_raw": "^1Rail^7gun",
    "first_seen": "2026-09-05 10:55:58", "last_seen": "2026-10-29 19:27:35", "name_count": 2,
-   "linked_accounts": 1, "discord_id": "80351110224678912", "tags": ["cheater"],
+   "linked_accounts": 1, "discord_id": "80351110224678912", "discord_name": "railgod", "discord_status": "verified",
+   "steam_verified": true, "tags": ["cheater"],
    "steam": {"persona": "Railgun", "avatar": "https://avatars.steamstatic.com/…", "vac_bans": 1, "game_bans": 0,
              "community_banned": false, "days_since_last_ban": 120, "checked_at": "2026-10-30 08:00:00"},
    "profile_url": "https://steamcommunity.com/profiles/76561197960287930",
@@ -135,7 +137,17 @@ Every player seen on an IP address or CIDR range (`/ips/198.51.100.0/24`), with 
 
 ### `GET /discord/{id}`
 
-The players with a Discord ID: a user ID, a mention (`<@80351110224678912>`) or a username.
+The players with a Discord ID: a user ID, a mention (`<@80351110224678912>`) or a username. A username also matches names [looked up from Discord](../administration/discord.md), in upper or lower case.
+
+```json
+{"query": "railgod", "discord_id": null,
+ "players": [{"steam_id": "76561197960287930", "name": "Railgun",
+              "discord_id": "80351110224678912", "discord_name": "railgod", "…": "…"}]}
+```
+
+`query` is what was searched for. The top-level `discord_id` is that same value for a numeric ID and `null` for a username. Each player has their own `discord_id` and `discord_name`. A player's `discord_id` can hold a username instead of a number if that is what was entered for them, and `discord_name` is `null` until a username has been looked up.
+
+`steam_verified` is `true` when the Steam ID came from a demo, a log or a game server. `discord_status` is `verified` or `claimed` for a [link from FragQ](../administration/fragq.md#claimed-and-verified), otherwise `null`.
 
 ### `POST /records`
 

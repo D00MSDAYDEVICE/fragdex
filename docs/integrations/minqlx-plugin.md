@@ -10,7 +10,7 @@ The same file works on **minqlx** and **minqlxtended**, and needs nothing beyond
 
 ## Install
 
-1. In Fragdex, open **Settings → Fragdex API** and create a key for the game server, with **Add records** ticked. Tick nothing else: the plugin needs neither IP addresses nor notes. Under **Allowed IPs**, enter the game server's public address.
+1. In Fragdex, open **Settings → Fragdex API** and create a key for the game server, with **Add records** and **Game server** ticked. **Game server** makes the Steam IDs it sends count as [verified](../administration/fragq.md#verified-steam-ids). Tick nothing else: the plugin needs neither IP addresses nor notes. Under **Allowed IPs**, enter the game server's public address.
 2. On the same panel, download **minqlx plugin (fragdex.py)** and copy it into the server's plugin folder (`qlx_pluginsPath`, usually `minqlx-plugins`).
 3. Add `fragdex` to `qlx_plugins` in `server.cfg`, or load it now from the server console: `qlx !load fragdex`.
 4. Point it at Fragdex from the **server console or rcon**:

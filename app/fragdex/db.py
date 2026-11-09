@@ -1,5 +1,6 @@
 import dataclasses
 import datetime as dt
+import hashlib
 import ipaddress
 import sqlite3
 from collections import defaultdict
@@ -31,6 +32,11 @@ CREATE TABLE IF NOT EXISTS players(
     alt_count INTEGER NOT NULL DEFAULT 0,
     notes TEXT NOT NULL DEFAULT '',
     discord_id TEXT NOT NULL DEFAULT '',
+    discord_name TEXT NOT NULL DEFAULT '',
+    discord_checked_at TEXT,
+    discord_source TEXT NOT NULL DEFAULT '',  -- manual, import or fragq; '' = set before this was recorded
+    discord_status TEXT NOT NULL DEFAULT '',  -- from FragQ: claimed or verified
+    steam_verified INTEGER NOT NULL DEFAULT 0,
     steam_persona TEXT,
     steam_avatar TEXT,
     steam_visibility INTEGER,
@@ -74,6 +80,7 @@ CREATE TABLE IF NOT EXISTS sightings(
     source TEXT NOT NULL,
     source_ref TEXT NOT NULL DEFAULT '',
     server TEXT NOT NULL DEFAULT '',
+    verified INTEGER NOT NULL DEFAULT 0,      -- the Steam ID came from the game itself
     import_id INTEGER REFERENCES imports(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,
     UNIQUE(steam_id, name, ip, seen_at, source)
@@ -122,6 +129,7 @@ CREATE TABLE IF NOT EXISTS api_keys(
     can_ips INTEGER NOT NULL DEFAULT 0,
     can_notes INTEGER NOT NULL DEFAULT 0,
     can_write INTEGER NOT NULL DEFAULT 0,
+    game_server INTEGER NOT NULL DEFAULT 0,   -- records added with this key count as verified
     allowed_ips TEXT NOT NULL DEFAULT '',     -- space separated IPs / CIDR ranges; empty = any
     rate_limit INTEGER NOT NULL DEFAULT 120,  -- requests per minute; 0 = unlimited
     expires_at TEXT NOT NULL DEFAULT '',      -- last valid day (UTC, YYYY-MM-DD); empty = never
@@ -135,7 +143,37 @@ CREATE TABLE IF NOT EXISTS api_keys(
     created_by TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
+
+-- FragQ servers to read Steam and Discord links from
+CREATE TABLE IF NOT EXISTS fragq_connections(
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL DEFAULT '',
+    key TEXT NOT NULL DEFAULT '',
+    trusted INTEGER NOT NULL DEFAULT 0,       -- only a trusted server's links can count as verified
+    from_env INTEGER NOT NULL DEFAULT 0,      -- address and key come from FRAGQ_URL and FRAGQ_KEY
+    last_result TEXT NOT NULL DEFAULT '',     -- JSON counts of the last successful sync
+    last_error TEXT NOT NULL DEFAULT '',
+    filled_key TEXT NOT NULL DEFAULT '',      -- hash of the key filled_total was counted with
+    filled_total INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+-- each server's answer as it gave it; the value a player ends up with is worked out from all of these
+CREATE TABLE IF NOT EXISTS fragq_links(
+    connection_id INTEGER NOT NULL REFERENCES fragq_connections(id) ON DELETE CASCADE,
+    steam_id TEXT NOT NULL,
+    discord_id TEXT NOT NULL,
+    discord_name TEXT NOT NULL DEFAULT '',
+    persona TEXT NOT NULL DEFAULT '',
+    verified INTEGER NOT NULL DEFAULT 0,      -- what the server says, whether or not it is trusted
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(connection_id, steam_id)
+);
+CREATE INDEX IF NOT EXISTS fragq_links_steam ON fragq_links(steam_id);
 """
+
+# demos and server logs come from the game itself, so the Steam IDs in them can't be typed in by someone
+VERIFIED_SOURCES = ("demo", "log")
 
 
 def now():
@@ -191,6 +229,24 @@ def init_db():
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(players)")}
         if "discord_id" not in cols:
             conn.execute("ALTER TABLE players ADD COLUMN discord_id TEXT NOT NULL DEFAULT ''")
+        if "discord_name" not in cols:
+            conn.execute("ALTER TABLE players ADD COLUMN discord_name TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE players ADD COLUMN discord_checked_at TEXT")
+        if "discord_status" not in cols:
+            conn.execute("ALTER TABLE players ADD COLUMN discord_source TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE players ADD COLUMN discord_status TEXT NOT NULL DEFAULT ''")
+        with transaction(conn):
+            if "verified" not in {r["name"] for r in conn.execute("PRAGMA table_info(sightings)")}:
+                conn.execute("ALTER TABLE sightings ADD COLUMN verified INTEGER NOT NULL DEFAULT 0")
+                conn.execute("UPDATE sightings SET verified=1 WHERE source IN (%s)"
+                             % ",".join("?" * len(VERIFIED_SOURCES)), VERIFIED_SOURCES)
+            if "steam_verified" not in cols:
+                conn.execute("ALTER TABLE players ADD COLUMN steam_verified INTEGER NOT NULL DEFAULT 0")
+                conn.execute("UPDATE players SET steam_verified = EXISTS(SELECT 1 FROM sightings s"
+                             " WHERE s.steam_id = players.steam_id AND s.verified = 1)")
+        if "game_server" not in {r["name"] for r in conn.execute("PRAGMA table_info(api_keys)")}:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN game_server INTEGER NOT NULL DEFAULT 0")
+        _migrate_fragq(conn)
         # jobs interrupted by a restart go back in the queue
         conn.execute("UPDATE imports SET status='queued' WHERE status='running'")
 
@@ -211,12 +267,59 @@ def steam_api_key(conn):
     return config.STEAM_API_KEY_ENV or get_setting(conn, "steam_api_key")
 
 
+def discord_bot_token(conn):
+    return config.DISCORD_BOT_TOKEN_ENV or get_setting(conn, "discord_bot_token")
+
+
+def key_mark(key):
+    """Tells keys apart without keeping another copy of them."""
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def _migrate_fragq(conn):
+    """Turn the single FragQ connection of earlier builds into the first entry of the list, and add the one set by
+    FRAGQ_URL and FRAGQ_KEY. These were chosen by the admin, so they start out trusted."""
+    both_env = bool(config.FRAGQ_URL_ENV and config.FRAGQ_KEY_ENV)
+    with transaction(conn):
+        if conn.execute("SELECT 1 FROM fragq_connections LIMIT 1").fetchone():
+            if both_env and not conn.execute("SELECT 1 FROM fragq_connections WHERE from_env=1").fetchone():
+                conn.execute("INSERT INTO fragq_connections(name, trusted, from_env, created_at) VALUES('FragQ (.env)',1,1,?)",
+                             (now(),))
+            return
+        url = config.FRAGQ_URL_ENV or get_setting(conn, "fragq_url")
+        key = config.FRAGQ_KEY_ENV or get_setting(conn, "fragq_key")
+        if not url or not key:
+            return
+        total = get_setting(conn, "fragq_filled_total", "")
+        if not total:   # never counted: everything FragQ has filled in so far came through this key
+            total = conn.execute("SELECT COUNT(*) FROM players WHERE discord_source='fragq'").fetchone()[0]
+        conn.execute("""INSERT INTO fragq_connections(name, url, key, trusted, from_env, last_result, last_error, filled_key,
+                        filled_total, created_at) VALUES('FragQ',?,?,1,?,?,?,?,?,?)""",
+                     ("" if both_env else url, "" if both_env else key, int(both_env), get_setting(conn, "fragq_last_result"),
+                      get_setting(conn, "fragq_last_error"), key_mark(key), int(total), now()))
+        conn.execute("DELETE FROM settings WHERE key IN ('fragq_url', 'fragq_key', 'fragq_last_result', 'fragq_last_error',"
+                     " 'fragq_conflicts', 'fragq_filled_key', 'fragq_filled_total')")
+
+
 # ---------------------------------------------------------------- writes
 
-def add_sightings(conn, sightings, source, source_ref="", import_id=None):
+def set_discord(conn, sid, discord):
+    """Set a player's Discord ID by hand. A different ID forgets what was known about the old one, and
+    marks it 'manual' so that a FragQ sync neither replaces it nor refills one cleared on purpose."""
+    conn.execute("UPDATE players SET discord_name=CASE WHEN discord_id=? THEN discord_name ELSE '' END,"
+                 " discord_checked_at=CASE WHEN discord_id=? THEN discord_checked_at END,"
+                 " discord_source=CASE WHEN discord_id=? THEN discord_source ELSE 'manual' END,"
+                 " discord_status=CASE WHEN discord_id=? THEN discord_status ELSE '' END,"
+                 " discord_id=?, updated_at=? WHERE steam_id=?",
+                 (discord, discord, discord, discord, discord, now(), sid))
+
+
+def add_sightings(conn, sightings, source, source_ref="", import_id=None, verified=None):
     """Insert sightings (inside the caller's transaction). Returns (added, steam_ids).
-    Loopback IPs (127.0.0.1, ::1) are dropped: they are the server or a proxy, not the player."""
+    Loopback IPs (127.0.0.1, ::1) are dropped: they are the server or a proxy, not the player.
+    verified: whether the Steam IDs came from the game itself; by default that depends on the source."""
     ts = now()
+    verified = int(source in VERIFIED_SOURCES if verified is None else verified)
     added = 0
     sids = set()
     for s in sightings:
@@ -228,8 +331,9 @@ def add_sightings(conn, sightings, source, source_ref="", import_id=None):
                      (s.steam_id, ts, ts))
         cur = conn.execute(
             "INSERT OR IGNORE INTO sightings(steam_id, name, name_clean, ip, seen_at, source, source_ref, server,"
-            " import_id, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (s.steam_id, s.name, search_key(s.name), s.ip, s.seen_at, source, source_ref, s.server, import_id, ts))
+            " verified, import_id, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (s.steam_id, s.name, search_key(s.name), s.ip, s.seen_at, source, source_ref, s.server, verified,
+             import_id, ts))
         added += cur.rowcount
         sids.add(s.steam_id)
     return added, sids
@@ -256,8 +360,20 @@ def refresh_players(conn, steam_ids):
               name_count = (SELECT COUNT(DISTINCT name) FROM sightings s WHERE s.steam_id = players.steam_id
                             AND name != ''),
               ip_count = (SELECT COUNT(DISTINCT ip) FROM sightings s WHERE s.steam_id = players.steam_id AND ip != ''),
+              steam_verified = EXISTS(SELECT 1 FROM sightings s WHERE s.steam_id = players.steam_id AND s.verified = 1),
               updated_at = ?
             WHERE steam_id IN ({marks})""", (ts, *chunk))
+
+
+def mark_api_records(conn, key_names, verified):
+    """A key's game server option changed: its earlier records start, or stop, counting as verified."""
+    refs = [f"api: {n}" for n in key_names]
+    marks = ",".join("?" * len(refs))
+    sids = [r[0] for r in conn.execute(
+        f"SELECT DISTINCT steam_id FROM sightings WHERE source='api' AND source_ref IN ({marks})", refs)]
+    conn.execute(f"UPDATE sightings SET verified=? WHERE source='api' AND source_ref IN ({marks})",
+                 (int(verified), *refs))
+    refresh_players(conn, sids)
 
 
 def shared_ips_clause():
@@ -315,6 +431,9 @@ SORTS = {
     "first_seen": "p.first_seen = '' , p.first_seen {dir}",
     "name": "p.last_name_clean = '', p.last_name_clean {dir}",
     "steam_id": "p.steam_id {dir}",
+    # by the text shown: usernames first, then players with only a numeric ID, then those with no Discord
+    "discord": "p.discord_id = '', (p.discord_name = '' AND p.discord_id NOT GLOB '*[^0-9]*'),"
+               " CASE WHEN p.discord_name != '' THEN lower(p.discord_name) ELSE p.discord_id END {dir}",
     "aliases": "p.name_count {dir}",
     "ips": "p.ip_count {dir}",
     "alts": "p.alt_count {dir}",
@@ -347,9 +466,10 @@ def build_filter(f, ips=True, notes=True):
             where.append(f"""(p.steam_id LIKE ? ESCAPE '\\'
                 OR p.steam_id IN (SELECT steam_id FROM sightings WHERE {names})
                 OR lower(COALESCE(p.steam_persona, '')) LIKE ? ESCAPE '\\'
-                OR lower(p.discord_id) LIKE ? ESCAPE '\\'""" + (" OR lower(p.notes) LIKE ? ESCAPE '\\'" if notes else "")
+                OR lower(p.discord_id) LIKE ? ESCAPE '\\'
+                OR lower(p.discord_name) LIKE ? ESCAPE '\\'""" + (" OR lower(p.notes) LIKE ? ESCAPE '\\'" if notes else "")
                 + ")")
-            params += [prefix, _like(key)] + ([prefix] if ips else []) + [_like(key), _like(q.lower().lstrip("@"))]
+            params += [prefix, _like(key)] + ([prefix] if ips else []) + [_like(key), _like(q.lower().lstrip("@")), _like(q.lower().lstrip("@"))]
             if notes:
                 params.append(_like(key))
     tag = f.get("tag")
@@ -362,6 +482,10 @@ def build_filter(f, ips=True, notes=True):
         params.append(source)
     if f.get("has_ip"):
         where.append("p.ip_count > 0")
+    if f.get("has_discord"):
+        where.append("p.discord_id != ''")
+    if f.get("verified"):
+        where.append("p.steam_verified = 1")
     if f.get("has_alts"):
         where.append("p.alt_count > 0")
     bans = f.get("bans")

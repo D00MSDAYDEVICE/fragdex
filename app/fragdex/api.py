@@ -19,7 +19,7 @@ MAX_PAGE = 500
 MAX_LOOKUP = 100
 MAX_RECORDS = 1000
 BANS = ("vac", "any", "clean")
-SOURCES = ("demo", "log", "xlsx", "csv", "manual", "api")
+SOURCES = ("demo", "log", "xlsx", "csv", "manual", "api", "fragq")
 
 
 class ApiError(Exception):
@@ -94,6 +94,8 @@ def _summary(p, key, tags=None):
     d = {"steam_id": p["steam_id"], "name": clean_name(p["last_name"]), "name_raw": p["last_name"],
          "first_seen": p["first_seen"] or None, "last_seen": p["last_seen"] or None,
          "name_count": p["name_count"], "linked_accounts": p["alt_count"], "discord_id": p["discord_id"] or None,
+         "discord_name": p["discord_name"] or None, "discord_status": p["discord_status"] or None,
+         "steam_verified": bool(p["steam_verified"]),
          "tags": tags if tags is not None else [], "steam": _steam(p),
          "profile_url": f"https://steamcommunity.com/profiles/{p['steam_id']}"}
     if key["can_ips"]:
@@ -152,7 +154,9 @@ def players(request: Request, key=Depends(api_key)):
     f = {"q": qp.get("q", "").strip()[:200], "source": qp.get("source", ""), "bans": qp.get("bans", ""),
          "seen_from": qp.get("seen_from", ""), "seen_to": qp.get("seen_to", ""),
          "sort": qp.get("sort", "last_seen"), "dir": qp.get("dir", "desc"),
-         "has_ip": qp.get("has_ip") in ("1", "true"), "has_alts": qp.get("linked") in ("1", "true")}
+         "has_ip": qp.get("has_ip") in ("1", "true"), "has_discord": qp.get("has_discord") in ("1", "true"),
+         "verified": qp.get("verified") in ("1", "true"),
+         "has_alts": qp.get("linked") in ("1", "true")}
     if f["source"] and f["source"] not in SOURCES:
         raise ApiError(400, f"source must be one of: {', '.join(SOURCES)}.")
     if f["bans"] and f["bans"] not in BANS:
@@ -285,10 +289,12 @@ def discord_lookup(discord_id: str, key=Depends(api_key)):
     if not did:
         raise ApiError(400, f"'{discord_id[:40]}' is not a Discord user ID or username.")
     with db.get_db() as conn:
-        rows = [dict(r) for r in conn.execute("SELECT * FROM players WHERE discord_id=? ORDER BY last_seen DESC",
-                                              (did,))]
+        rows = [dict(r) for r in conn.execute("SELECT * FROM players WHERE discord_id=? COLLATE NOCASE"
+                                              " OR discord_name=? COLLATE NOCASE"
+                                              " ORDER BY last_seen DESC", (did, did))]
         tags = _tags(conn, [p["steam_id"] for p in rows])
-    return {"discord_id": did, "players": [_summary(p, key, tags[p["steam_id"]]) for p in rows]}
+    return {"query": did, "discord_id": did if did.isdigit() else None,
+            "players": [_summary(p, key, tags[p["steam_id"]]) for p in rows]}
 
 
 # ---------------------------------------------------------------- write
@@ -334,7 +340,7 @@ async def add_records(request: Request, key=Depends(api_key)):
 
     def run():
         with db.get_db() as conn, db.transaction(conn):
-            added, sids = db.add_sightings(conn, good, "api", f"api: {key['name']}")
+            added, sids = db.add_sightings(conn, good, "api", f"api: {key['name']}", verified=bool(key["game_server"]))
             db.refresh_players(conn, sids)
         return added, sids
 

@@ -2,11 +2,15 @@
 
 ## The Settings page
 
-**Settings** (admins only) has three panels.
+**Settings** (admins only) has five panels.
 
 **Steam Web API**: the key and live refresh progress. See [Steam Web API](steam.md).
 
 **System**: the number of players and records, database size, TLS mode, watched folder, linked-account IP limit and whether uploads are kept. These values come from `.env` and are shown for reference.
+
+**Discord usernames**: the bot token used to look up usernames for Discord IDs, and its progress. See [Discord usernames](discord.md).
+
+**FragQ links**: the connections that read Steam and Discord links from FragQ servers. See [FragQ links](fragq.md).
 
 **Fragdex API**: the base URL and the API keys other programs use, such as the [minqlx plugin](../integrations/minqlx-plugin.md). See [API](../integrations/api.md).
 
@@ -45,6 +49,10 @@ docker compose up -d
 |---|---|---|
 | `STEAM_API_KEY` | none | Optional Steam Web API key. Overrides a key saved on the Settings page. |
 | `STEAM_REFRESH_HOURS` | `24` | How often each player's Steam data is refreshed. |
+| `DISCORD_BOT_TOKEN` | none | Optional [Discord bot token](discord.md). Overrides a token saved on the Settings page. |
+| `DISCORD_REFRESH_DAYS` | `7` | How often each Discord username is checked again. |
+| `FRAGQ_URL`, `FRAGQ_KEY` | none | Address and connector key of one trusted [FragQ server](fragq.md). More can be added on the Settings page. |
+| `FRAGQ_SYNC_MINUTES` | `15` | How often every FragQ server is checked for links. |
 
 ### Importing
 

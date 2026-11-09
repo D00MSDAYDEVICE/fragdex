@@ -14,7 +14,11 @@ Designed for flexibility and portability, Fragdex includes the `fragdex-scan` de
 - Alt-account linking: other Steam IDs seen on the same IP. Local addresses (127.0.0.1, ::1)
   are never recorded, so they can't link everyone seen through the server itself.
 - Discord ID per player (user ID or username), in its own column, searchable, settable on the
-  Add page, the player page or from a spreadsheet's *Discord ID* column.
+  Add page, the player page or from a spreadsheet's *Discord ID* column. With a Discord bot
+  token, usernames are looked up and shown, with the ID a click away. Links can also be read
+  from FragQ, labelled claimed or verified.
+- **Verified Steam IDs**: players seen in demos, logs or by a game server's plugin are marked,
+  because those Steam IDs can't be typed in by someone else.
 - Sort by most aliases with the toggle in the History column header.
 - Optional Steam Web API enrichment: avatar, current Steam name, VAC/game bans, with
   live progress of the background refresh under Settings.
@@ -308,7 +312,9 @@ covers the player data and is easier to move or share.
 │   │   ├── main.py           routes, auth, CSRF, uploads, downloads, API key settings
 │   │   ├── api.py  apikeys.py    the /api/v1 JSON API; API keys, rate limits, usage
 │   │   ├── db.py             SQLite schema, search, alt-account linking
-│   │   ├── worker.py         import queue, watched folder, Steam refresher
+│   │   ├── worker.py         import queue, watched folder, Steam and Discord refreshers
+│   │   ├── discord_users.py  Discord username lookups
+│   │   ├── fragq.py          Steam and Discord links from FragQ
 │   │   ├── importers/        demo / log / spreadsheet / .fdx parsers
 │   │   ├── scanner.py        fragdex-scan CLI (also bundled as a standalone script)
 │   │   ├── downloads/        prebuilt fragdex-scan.exe and the minqlx plugin (minqlx/fragdex.py)

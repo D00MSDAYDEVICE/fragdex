@@ -352,7 +352,8 @@ def test_csv_import(tmp_path):
     p.write_text("Name,SteamID,IP,Aliases\nfoo,76561198000000009,1.2.3.4 5.6.7.8,bar / baz\n"
                  "bad,7.65612E+16,1.1.1.1,\n", encoding="utf-8")
     out, stats = parse_csv(str(p))
-    assert stats == {"rows": 2, "skipped_bad_id": 1, "skipped_no_id": 0, "bad_discord": 0, "discord": {}}
+    assert stats == {"rows": 2, "skipped_bad_id": 1, "skipped_no_id": 0, "bad_discord": 0, "discord": {},
+                     "discord_names": {}}
     assert {(s.name, s.ip) for s in out} == {("foo", "1.2.3.4"), ("foo", "5.6.7.8"), ("bar", ""), ("baz", "")}
 
 
@@ -364,6 +365,27 @@ def test_csv_discord_column(tmp_path):
     _out, stats = parse_csv(str(p))
     assert stats["discord"] == {"76561198000000001": "80351110224678912", "76561198000000002": "frost.bite"}
     assert stats["bad_discord"] == 1
+
+
+def test_csv_steam_to_discord_links(tmp_path):
+    p = tmp_path / "links.csv"
+    p.write_text("steamid,discordid,discord_name\n"
+                 "76561198000000001,80351110224678912,\n"
+                 "76561198000000002,80351110224678913,frost.bite\n"
+                 "80351110224678914,76561198000000003,\n"       # columns swapped: no Steam ID in the Steam column
+                 "80351110224678915,80351110224678915,\n", encoding="utf-8")
+    out, stats = parse_csv(str(p))
+    assert out == []                                            # no empty records for rows that only link accounts
+    assert stats["rows"] == 4 and stats["skipped_bad_id"] == 2
+    assert stats["discord"] == {"76561198000000001": "80351110224678912", "76561198000000002": "80351110224678913"}
+    assert stats["discord_names"] == {"76561198000000002": "frost.bite"}
+
+
+def test_csv_discord_username_column_alone(tmp_path):
+    p = tmp_path / "u.csv"
+    p.write_text("Name,Steam ID,Discord Username\na,76561198000000001,Frost.Bite\n", encoding="utf-8")
+    out, stats = parse_csv(str(p))
+    assert len(out) == 1 and stats["discord"] == {"76561198000000001": "frost.bite"} and stats["discord_names"] == {}
 
 
 def test_discord_ids_and_local_ips():

@@ -88,6 +88,8 @@ nav:
   - Administration:
       - Users And Roles: administration/users.md
       - Steam Web API: administration/steam.md
+      - Discord Usernames: administration/discord.md
+      - FragQ Links: administration/fragq.md
       - Settings And .env Reference: administration/settings.md
       - HTTPS And Ports: administration/https.md
       - Updating: administration/updating.md

@@ -1,6 +1,7 @@
 import csv
 import hmac
 import io
+import json
 import math
 import os
 import re
@@ -21,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, api, apikeys, auth, config, db, steam, worker
+from . import __version__, api, apikeys, auth, config, db, discord_users, fragq, steam, worker
 from .importers.common import (STEAM64_RE, Sighting, clean_name, file_kind, is_local_ip, normalize_discord_id,
                                normalize_ip, normalize_name, normalize_steam_id, parse_date)
 from .importers.export import FORMAT_VERSION, ExportWriter
@@ -251,6 +252,8 @@ def read_filters(request: Request):
     qp = request.query_params
     f = {k: qp.get(k, "").strip() for k in ("q", "tag", "source", "bans", "seen_from", "seen_to", "sort", "dir")}
     f["has_ip"] = qp.get("has_ip") == "1"
+    f["has_discord"] = qp.get("has_discord") == "1"
+    f["verified"] = qp.get("verified") == "1"
     f["has_alts"] = qp.get("has_alts") == "1"
     if not f["tag"].isdigit():
         f["tag"] = ""
@@ -324,19 +327,20 @@ def export_csv(request: Request):
             _total, rows = db.search_players(conn, f, limit=-1, offset=0)
             buf = io.StringIO()
             w = csv.writer(buf)
-            w.writerow(["steam_id", "discord_id", "name", "name_raw", "last_ip", "first_seen", "last_seen", "aliases", "ips",
+            w.writerow(["steam_id", "discord_id", "discord_name", "name", "name_raw", "last_ip", "first_seen", "last_seen", "aliases", "ips",
                         "linked_accounts", "tags", "notes", "steam_persona", "vac_bans", "game_bans",
-                        "steam_profile"])
+                        "steam_profile", "steam_verified", "discord_status"])
             for i in range(0, len(rows), 500):
                 chunk = db.attach_details(conn, rows[i:i + 500])
                 for p in chunk:
                     w.writerow([_csv_safe(x) for x in (
-                        p["steam_id"], p["discord_id"], clean_name(p["last_name"]), p["last_name"], p["last_ip"],
+                        p["steam_id"], p["discord_id"], p["discord_name"], clean_name(p["last_name"]), p["last_name"], p["last_ip"],
                         p["first_seen"],
                         p["last_seen"], " | ".join(n["name"] for n in p["names"]),
                         " | ".join(x["ip"] for x in p["ips"]), p["alt_count"],
                         " | ".join(t["name"] for t in p["tags"]), p["notes"], p["steam_persona"], p["vac_bans"],
-                        p["game_bans"], f"https://steamcommunity.com/profiles/{p['steam_id']}")])
+                        p["game_bans"], f"https://steamcommunity.com/profiles/{p['steam_id']}",
+                        "yes" if p["steam_verified"] else "no", p["discord_status"])])
                 yield buf.getvalue()
                 buf.seek(0)
                 buf.truncate()
@@ -360,11 +364,11 @@ def export_fdx(request: Request):
         with db.get_db() as conn:
             key, rows = None, []
             for r in conn.execute(
-                    "SELECT steam_id, name, ip, seen_at, source, source_ref, server FROM sightings"
-                    f" WHERE steam_id IN ({players_sql}) ORDER BY source, source_ref, server, id", params):
-                k = (r["source"], r["source_ref"], r["server"])
+                    "SELECT steam_id, name, ip, seen_at, source, source_ref, server, verified FROM sightings"
+                    f" WHERE steam_id IN ({players_sql}) ORDER BY source, source_ref, server, verified, id", params):
+                k = (r["source"], r["source_ref"], r["server"], r["verified"])
                 if rows and (k != key or len(rows) >= 5000):
-                    w.add_rows(key[1] or key[0], key[0], "", 0, rows, server=key[2])
+                    w.add_rows(key[1] or key[0], key[0], "", 0, rows, server=key[2], verified=key[0] == "api" and key[3])
                     rows = []
                 key = k
                 rows.append([r["steam_id"], r["name"], r["ip"], r["seen_at"]])
@@ -373,7 +377,7 @@ def export_fdx(request: Request):
                     buf.seek(0)
                     buf.truncate()
             if rows:
-                w.add_rows(key[1] or key[0], key[0], "", 0, rows, server=key[2])
+                w.add_rows(key[1] or key[0], key[0], "", 0, rows, server=key[2], verified=key[0] == "api" and key[3])
             tags = defaultdict(list)
             for r in conn.execute(f"""SELECT pt.steam_id, t.name, t.color FROM player_tags pt
                                       JOIN tags t ON t.id = pt.tag_id WHERE pt.steam_id IN ({players_sql})
@@ -447,7 +451,8 @@ async def player_discord(request: Request, sid: str):
         flash(request, f"'{raw[:40]}' is not a Discord user ID (17-20 digits) or username.", "error")
         return back(f"/player/{sid}")
     with db.get_db() as conn:
-        conn.execute("UPDATE players SET discord_id=?, updated_at=? WHERE steam_id=?", (discord, db.now(), sid))
+        db.set_discord(conn, sid, discord)
+    worker.wake_discord()
     flash(request, "Discord ID saved." if discord else "Discord ID removed.")
     return back(f"/player/{sid}")
 
@@ -551,13 +556,15 @@ def _manual_add(request, user, sid, form, fail_url):
             ts = db.now()
             conn.execute("INSERT OR IGNORE INTO players(steam_id, created_at, updated_at) VALUES(?,?,?)", (sid, ts, ts))
         if discord:
-            conn.execute("UPDATE players SET discord_id=? WHERE steam_id=?", (discord, sid))
+            db.set_discord(conn, sid, discord)
         notes = str(form.get("notes", "")).strip()
         if notes:
             conn.execute("UPDATE players SET notes = CASE WHEN notes = '' THEN ? ELSE notes || char(10) || ? END "
                          "WHERE steam_id=?", (notes, notes, sid))
         db.refresh_players(conn, [sid])
         db.recompute_alts(conn)
+    if discord:
+        worker.wake_discord()
     if name or ip:
         msg = "Record added." if added else "That exact record already exists."
         flash(request, msg[:-1] + "; Discord ID saved." if discord else msg)
@@ -926,6 +933,8 @@ def _settings(request, user, new_key=None):
             "steam_error": db.get_setting(conn, "steam_last_error"),
         }
         steam_status = _steam_status(conn)
+        discord_status = _discord_status(conn)
+        fragq_status = _fragq_status(conn)
         apikeys.usage.flush(conn)
         keys = [dict(r, state=apikeys.state(r)) for r in conn.execute("SELECT * FROM api_keys ORDER BY name, id")]
     try:
@@ -934,7 +943,9 @@ def _settings(request, user, new_key=None):
         info["db_mb"] = 0
     return render(request, "settings.html", user, nav="settings", key_set=bool(key),
                   key_from_env=bool(config.STEAM_API_KEY_ENV), key_hint=(key[:4] + "…" + key[-4:]) if key else "",
-                  info=info, cfg=config, wstatus=worker.status, sp=steam_status, api_keys=keys, new_key=new_key,
+                  info=info, cfg=config, wstatus=worker.status, sp=steam_status, dp=discord_status, fq=fragq_status,
+                  api_keys=keys,
+                  new_key=new_key,
                   api_url=str(request.base_url).rstrip("/") + api.router.prefix, default_rate=apikeys.DEFAULT_RATE,
                   max_rate=apikeys.MAX_RATE, plugin=os.path.isfile(MINQLX_PLUGIN))
 
@@ -950,7 +961,7 @@ def _api_key_form(form):
         return None, error
     return {"name": name, "allowed_ips": allowed, "rate_limit": rate, "expires_at": expires,
             "can_ips": int(form.get("can_ips") == "1"), "can_notes": int(form.get("can_notes") == "1"),
-            "can_write": int(form.get("can_write") == "1")}, None
+            "can_write": int(form.get("can_write") == "1"), "game_server": int(form.get("game_server") == "1")}, None
 
 
 def _api_key_row(conn, key_id):
@@ -970,10 +981,11 @@ async def api_key_create(request: Request):
         return back("/admin/settings#api")
     key, key_hash, prefix = apikeys.new_key()
     with db.get_db() as conn:
-        conn.execute("""INSERT INTO api_keys(name, prefix, key_hash, can_ips, can_notes, can_write, allowed_ips,
-                        rate_limit, expires_at, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+        conn.execute("""INSERT INTO api_keys(name, prefix, key_hash, can_ips, can_notes, can_write, game_server,
+                        allowed_ips, rate_limit, expires_at, created_by, created_at)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                      (values["name"], prefix, key_hash, values["can_ips"], values["can_notes"], values["can_write"],
-                      values["allowed_ips"], values["rate_limit"], values["expires_at"], user["username"], db.now()))
+                      values["game_server"], values["allowed_ips"], values["rate_limit"], values["expires_at"], user["username"], db.now()))
     # rendered straight away rather than redirected, so the key never passes through the session cookie
     return _settings(request, user, new_key={"name": values["name"], "key": key})
 
@@ -984,14 +996,18 @@ async def api_key_update(request: Request, key_id: int):
     form = await checked_form(request)
     values, error = _api_key_form(form)
     with db.get_db() as conn:
-        _api_key_row(conn, key_id)
+        row = _api_key_row(conn, key_id)
         if error:
             flash(request, error, "error")
             return back("/admin/settings#api")
-        conn.execute("""UPDATE api_keys SET name=?, can_ips=?, can_notes=?, can_write=?, allowed_ips=?, rate_limit=?,
-                        expires_at=? WHERE id=?""",
-                     (values["name"], values["can_ips"], values["can_notes"], values["can_write"],
-                      values["allowed_ips"], values["rate_limit"], values["expires_at"], key_id))
+        with db.transaction(conn):
+            conn.execute("""UPDATE api_keys SET name=?, can_ips=?, can_notes=?, can_write=?, game_server=?, allowed_ips=?,
+                            rate_limit=?, expires_at=? WHERE id=?""",
+                         (values["name"], values["can_ips"], values["can_notes"], values["can_write"],
+                          values["game_server"], values["allowed_ips"], values["rate_limit"], values["expires_at"],
+                          key_id))
+            if values["game_server"] != row["game_server"]:
+                db.mark_api_records(conn, {row["name"], values["name"]}, values["game_server"])
     apikeys.limiter.reset(key_id)
     flash(request, f"Saved the settings of API key '{values['name']}'. They apply from its next request.")
     return back("/admin/settings#api")
@@ -1030,6 +1046,106 @@ async def api_key_delete(request: Request, key_id: int):
     return back("/admin/settings#api")
 
 
+def _fragq_form(form, c=None):
+    """The settings of a FragQ connection from the Settings form. Returns (name, url, key, trusted, error)."""
+    name = re.sub(r"\s+", " ", str(form.get("label") or "")).strip()[:60]
+    trusted = form.get("trusted") == "1"
+    if not name:
+        return None, None, None, None, "Give the connection a name, such as the Discord server it is for."
+    if c and c["from_env"]:     # the address and key are set in .env
+        return name, "", "", trusted, None
+    url, error = fragq.parse_url(form.get("url"))
+    key = str(form.get("key") or "").strip()
+    if not error and not url:
+        error = "Enter FragQ's address, from the Fragdex panel of its Connectors page."
+    if not error and key and not re.fullmatch(r"[\w-]{16,200}", key):
+        error = "That doesn't look like a FragQ connector key. Copy it from FragQ's Connectors page."
+    if not error and not key and not c:
+        error = "Enter the key of the connector you created in FragQ."
+    return name, url, key, trusted, error
+
+
+def _fragq_row(conn, connection_id):
+    c = fragq.connection(conn, connection_id)
+    if not c:
+        raise NotFound()
+    return c
+
+
+@app.post("/admin/fragq")
+async def fragq_create(request: Request):
+    require(request, "admin")
+    form = await checked_form(request)
+    name, url, key, trusted, error = _fragq_form(form)
+    if error:
+        flash(request, error, "error")
+        return back("/admin/settings#fragq")
+    with db.get_db() as conn:
+        fragq.add_connection(conn, name, url, key, trusted)
+    worker.wake_fragq()
+    flash(request, f"Added FragQ connection '{name}'.")
+    return back("/admin/settings#fragq")
+
+
+@app.post("/admin/fragq/sync")
+async def fragq_sync_now(request: Request):
+    require(request, "admin")
+    await checked_form(request)
+    worker.wake_fragq()
+    flash(request, "Checking FragQ now. Reload this page in a moment to see the result.")
+    return back("/admin/settings#fragq")
+
+
+@app.post("/admin/fragq/{connection_id}")
+async def fragq_update(request: Request, connection_id: int):
+    require(request, "admin")
+    form = await checked_form(request)
+    with db.get_db() as conn:
+        c = _fragq_row(conn, connection_id)
+        name, url, key, trusted, error = _fragq_form(form, c)
+        if error:
+            flash(request, error, "error")
+            return back("/admin/settings#fragq")
+        fragq.update_connection(conn, c, name, url, key, trusted)
+    worker.wake_fragq()
+    worker.wake_discord()
+    flash(request, f"Saved FragQ connection '{name}'.")
+    return back("/admin/settings#fragq")
+
+
+@app.post("/admin/fragq/{connection_id}/test")
+async def fragq_test(request: Request, connection_id: int):
+    require(request, "admin")
+    await checked_form(request)
+    with db.get_db() as conn:
+        c = _fragq_row(conn, connection_id)
+    try:
+        url, key = fragq.address(c)
+        if not url or not key:
+            raise RuntimeError("Its address or key isn't set.")
+        links = await run_in_threadpool(fragq.fetch, url, key)
+    except RuntimeError as e:
+        flash(request, f"FragQ test of '{c['name']}' failed: {e}", "error")
+    else:
+        flash(request, f"Connected to '{c['name']}': {len(links):,} links available.")
+    return back("/admin/settings#fragq")
+
+
+@app.post("/admin/fragq/{connection_id}/delete")
+async def fragq_delete(request: Request, connection_id: int):
+    require(request, "admin")
+    await checked_form(request)
+    with db.get_db() as conn:
+        c = _fragq_row(conn, connection_id)
+        if c["from_env"]:
+            flash(request, "This connection is set by FRAGQ_URL and FRAGQ_KEY in .env. Remove it there.", "error")
+            return back("/admin/settings#fragq")
+        fragq.delete_connection(conn, c)
+    worker.wake_discord()
+    flash(request, f"Removed FragQ connection '{c['name']}'. Players keep the Discord IDs they have.")
+    return back("/admin/settings#fragq")
+
+
 MINQLX_PLUGIN = os.path.join(HERE, "downloads", "minqlx", "fragdex.py")
 
 
@@ -1060,6 +1176,37 @@ def _steam_status(conn):
     return p
 
 
+def _discord_status(conn):
+    """Progress of the background Discord username lookup, for the Settings page."""
+    token = db.discord_bot_token(conn)
+    p = discord_users.progress(conn)
+    state = worker.status["discord_state"] if token else "nokey"
+    p.update(state=state, token_set=bool(token), from_env=bool(config.DISCORD_BOT_TOKEN_ENV),
+             hint="…" + token[-4:] if token else "", last_run=worker.status["discord_last_run"],
+             error=db.get_setting(conn, "discord_last_error") if state == "error" else "")
+    return p
+
+
+def _fragq_status(conn):
+    """The FragQ connections and what needs deciding, for the Settings page."""
+    counts = {r[0]: r[1] for r in conn.execute(
+        "SELECT discord_status, COUNT(*) FROM players WHERE discord_status != '' GROUP BY discord_status")}
+    conflicts = fragq.conflicts(conn)
+    involved = defaultdict(int)
+    for c in conflicts:
+        for connection_id in {link["connection_id"] for link in c["links"]}:
+            involved[connection_id] += 1
+    items = []
+    for c in fragq.connections(conn):
+        url, key = fragq.address(c)
+        items.append(dict(id=c["id"], name=c["name"], url=url, hint="…" + key[-4:] if key else "", trusted=bool(c["trusted"]),
+                          from_env=bool(c["from_env"]), filled_total=c["filled_total"], error=c["last_error"],
+                          result=json.loads(c["last_result"]) if c["last_result"] else None, conflicts=involved[c["id"]]))
+    return dict(connections=items, verified=counts.get("verified", 0), claimed=counts.get("claimed", 0),
+                conflicts=conflicts[:fragq.MAX_CONFLICTS], conflict_count=len(conflicts),
+                running=worker.status["fragq_state"] == "running")
+
+
 @app.get("/admin/settings/steam.json")
 def settings_steam_status(request: Request):
     require(request, "admin")
@@ -1085,6 +1232,21 @@ async def settings_save(request: Request):
             conn.execute("UPDATE players SET steam_checked_at=NULL")
             worker.wake_steam()
             flash(request, "All players will be refreshed from Steam in the background.")
+        elif action == "discord_token" and not config.DISCORD_BOT_TOKEN_ENV:
+            token = str(form.get("discord_bot_token", "")).strip()
+            if token and not re.fullmatch(r"[\w.-]{40,200}", token):
+                flash(request, "That doesn't look like a Discord bot token. Copy it from the Bot page of your "
+                               "application in the Discord Developer Portal.", "error")
+                return back("/admin/settings#discord")
+            db.set_setting(conn, "discord_bot_token", token)
+            db.set_setting(conn, "discord_last_error", "")
+            worker.status["discord_state"] = "idle"
+            worker.wake_discord()
+            flash(request, "Discord bot token saved." if token else "Discord bot token removed.")
+        elif action == "discord_refresh_all":
+            conn.execute("UPDATE players SET discord_checked_at=NULL")
+            worker.wake_discord()
+            flash(request, "All Discord usernames will be looked up again in the background.")
         elif action == "recompute_alts":
             with db.transaction(conn):
                 db.refresh_players(conn, [r[0] for r in conn.execute("SELECT steam_id FROM players")])

@@ -13,7 +13,8 @@
         <code>{{ p.steam_id }}</code>
         <button class="icon-btn" style="width:26px;height:26px" data-copy="{{ p.steam_id }}" title="Copy Steam ID"><svg class="i" style="width:14px;height:14px"><use href="#i-copy"/></svg></button>
       </span>
-      {% if p.discord_id %}<span class="sid">{% if discord_url(p.discord_id) %}<a class="discord-link" href="{{ discord_url(p.discord_id) }}" target="_blank" rel="noopener noreferrer" title="Open Discord profile"><svg class="i"><use href="#i-discord"/></svg></a>{% else %}<span class="discord-link" title="Discord username"><svg class="i"><use href="#i-discord"/></svg></span>{% endif %}<code>{{ p.discord_id }}</code></span>{% endif %}
+      {% if p.discord_id %}<span class="sid">{% if discord_url(p.discord_id) %}<a class="discord-link" href="{{ discord_url(p.discord_id) }}" target="_blank" rel="noopener noreferrer" title="Open Discord profile"><svg class="i"><use href="#i-discord"/></svg></a>{% else %}<span class="discord-link" title="Discord username"><svg class="i"><use href="#i-discord"/></svg></span>{% endif %}{% if p.discord_name %}<strong>{{ p.discord_name }}</strong>{% endif %}<code>{{ p.discord_id }}</code><button class="icon-btn" style="width:26px;height:26px" data-copy="{{ p.discord_id }}" title="Copy Discord ID"><svg class="i" style="width:14px;height:14px"><use href="#i-copy"/></svg></button>{% if p.discord_status %}<span class="link-status link-{{ p.discord_status }}" title="{{ 'Proved to FragQ: this Steam account belongs to this Discord account' if p.discord_status == 'verified' else 'Typed into FragQ: nothing proves the Steam account is theirs' }}">{{ p.discord_status }}</span>{% endif %}</span>{% endif %}
+      {% if p.steam_verified %}<span class="badge badge-ok" title="This Steam ID came from a demo, a log or a game server">Verified Steam ID</span>{% endif %}
       {% if p.steam_persona %}<span title="Current Steam persona name">Steam: <strong>{{ p.steam_persona }}</strong></span>{% endif %}
       {% if p.vac_bans %}<span class="badge badge-ban badge-plain"><svg class="i" style="width:12px;height:12px"><use href="#i-shield"/></svg>{{ p.vac_bans }} VAC</span>{% endif %}
       {% if p.game_bans %}<span class="badge badge-ban">{{ p.game_bans }} game ban{{ 's' if p.game_bans > 1 }}</span>{% endif %}
@@ -130,7 +131,9 @@
         <dl class="kv">
           <dt>First seen</dt><dd>{{ p.first_seen or '—' }}</dd>
           <dt>Last seen</dt><dd>{{ p.last_seen or '—' }}</dd>
+          {% if p.discord_name %}<dt>Discord username</dt><dd>{{ p.discord_name }}</dd>{% endif %}
           <dt>Discord ID</dt><dd>{{ p.discord_id or '—' }}</dd>
+          {% if p.discord_status %}<dt>FragQ link</dt><dd>{{ p.discord_status|capitalize }}</dd>{% endif %}
           <dt>Latest IP</dt>{% if p.last_ip %}<dd class="ip">{{ p.last_ip }}</dd>{% else %}<dd>—</dd>{% endif %}
           <dt>Names</dt><dd>{{ p.name_count }}</dd>
           <dt>IP addresses</dt><dd>{{ p.ip_count }}</dd>

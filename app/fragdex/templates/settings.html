@@ -1,6 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Settings{% endblock %}
 {% block content %}
+{# A placeholder can only be one colour, so a saved secret's text is drawn over the empty box.
+   new-password stops browsers filling in a saved login, which they do despite autocomplete="off". #}
+{% macro secret_input(name, label, saved, empty) %}
+  <span class="secret-input">
+    <input type="password" name="{{ name }}" placeholder="{{ ' ' if saved else empty }}" autocomplete="new-password" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" aria-label="{{ label }}{{ ' (saved)' if saved }}">
+    {% if saved %}<span class="secret-saved" aria-hidden="true"><strong>Saved</strong>: {{ saved }}</span>{% endif %}
+  </span>
+{% endmacro %}
+{% macro fragq_fields(c=None) %}
+  <input type="text" name="label" value="{{ c.name if c else '' }}" maxlength="60" required placeholder="Name, such as the Discord server it is for" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" aria-label="Connection name">
+  {% if c and c.from_env %}
+  <p class="hint">The address and key are set by <code>FRAGQ_URL</code> and <code>FRAGQ_KEY</code> in <code>.env</code>.</p>
+  {% else %}
+  <input type="text" inputmode="url" name="url" value="{{ c.url if c else '' }}" required placeholder="FragQ address, such as https://fragq.example.com" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" aria-label="FragQ address">
+  {{ secret_input('key', 'FragQ connector key', c.hint ~ ' (enter a new key to replace)' if c and c.hint else '', 'Connector key') }}
+  {% endif %}
+  <label class="check" title="Tick only if you trust the admin of this FragQ server"><input type="checkbox" name="trusted" value="1" {{ 'checked' if c and c.trusted }}> Trusted: links proved on this server count as verified</label>
+{% endmacro %}
 <div class="page-head"><div><h1>Settings</h1></div></div>
 <div class="grid-2">
   <section class="panel">
@@ -13,7 +31,7 @@
       <form method="post" action="/admin/settings" style="display:flex;gap:8px;flex-wrap:wrap">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="action" value="steam_key">
-        <input type="password" name="steam_api_key" placeholder="{{ 'Saved: ' ~ key_hint ~ ' (enter a new key to replace, empty to remove)' if key_set else '32-character key' }}" autocomplete="off" style="flex:1;min-width:240px">
+        {{ secret_input('steam_api_key', 'Steam Web API key', key_hint ~ ' (enter a new key to replace, empty to remove)' if key_set else '', '32-character key') }}
         <button class="btn btn-primary" type="submit">Save key</button>
       </form>
       {% endif %}
@@ -76,8 +94,120 @@
     <label class="check"><input type="checkbox" name="can_ips" value="1" {{ 'checked' if k and k.can_ips }}> See IP addresses</label>
     <label class="check"><input type="checkbox" name="can_notes" value="1" {{ 'checked' if k and k.can_notes }}> See notes</label>
     <label class="check"><input type="checkbox" name="can_write" value="1" {{ 'checked' if k and k.can_write }}> Add records</label>
+    <label class="check" title="Only for a game server's plugin: a script with this key could add any Steam ID"><input type="checkbox" name="game_server" value="1" {{ 'checked' if k and k.game_server }}> Game server: records count as verified</label>
   </div>
 {% endmacro %}
+
+<section class="panel" id="discord">
+  <div class="panel-head"><h2>Discord usernames</h2>{% if dp.total %}<span class="muted">{{ "{:,}".format(dp.named) }} of {{ "{:,}".format(dp.total) }} found</span>{% endif %}</div>
+  <div class="panel-body">
+    <p class="muted" style="margin-top:0">A Discord ID is only a number. With a bot token, the app looks up the username for each ID and shows it on the Players page, checking again every {{ cfg.DISCORD_REFRESH_DAYS }} days. Create an application at <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer">discord.com/developers/applications</a> and copy the token from its <em>Bot</em> page. The bot doesn't need to join a server or have any permissions.</p>
+    {% if dp.from_env %}
+      <p>Token is set by the <code>DISCORD_BOT_TOKEN</code> environment variable (<code>{{ dp.hint }}</code>).</p>
+    {% else %}
+    <form method="post" action="/admin/settings" class="token-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="discord_token">
+      {{ secret_input('discord_bot_token', 'Discord bot token', dp.hint ~ ' (enter a new token to replace, empty to remove)' if dp.token_set else '', 'Bot token') }}
+      <button class="btn btn-primary" type="submit">Save token</button>
+    </form>
+    {% endif %}
+    <p class="hint">{% if dp.state == 'nokey' %}Add a token to start.{% elif dp.state == 'error' %}Last run failed, retrying in 15 minutes.{% elif dp.pending %}{{ "{:,}".format(dp.pending) }} waiting to be looked up, about one per second.{% else %}Up to date.{% endif %}{% if dp.last_run %} Last run {{ dp.last_run }}.{% endif %}</p>
+    {% if dp.error %}<div class="flash flash-error">{{ dp.error }}</div>{% endif %}
+    {% if dp.token_set %}
+    <form method="post" action="/admin/settings">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="discord_refresh_all">
+      <button class="btn btn-sm" type="submit"><svg class="i"><use href="#i-refresh"/></svg>Look up all usernames again</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+<section class="panel" id="fragq">
+  <div class="panel-head"><h2>FragQ links</h2>{% if fq.verified or fq.claimed %}<span class="muted">{{ "{:,}".format(fq.verified) }} verified · {{ "{:,}".format(fq.claimed) }} claimed</span>{% endif %}</div>
+  <div class="panel-body">
+    <p class="muted" style="margin-top:0">Reads the Discord account each player linked to their Steam account from one or more FragQ servers, every {{ cfg.FRAGQ_SYNC_MINUTES }} minutes. <strong>Verified</strong> means the player proved the Steam account on a <em>trusted</em> FragQ server; <strong>claimed</strong> means nothing Fragdex can rely on proves it. On FragQ's Connectors page, press <em>Create Fragdex connector</em>, then add the <em>FragQ address</em> from that panel and the key here.</p>
+
+    <ul class="api-keys">
+      {% for c in fq.connections %}
+      <li class="api-key">
+        <div class="api-key-head">
+          <div class="api-key-title">
+            <strong>{{ c.name }}</strong>
+            {% if c.trusted %}<span class="badge badge-ok">Trusted</span>{% else %}<span class="badge">Not trusted</span>{% endif %}
+            {% if c.from_env %}<span class="badge badge-plain">.env</span>{% endif %}
+            {% if c.error %}<span class="badge badge-ban">Sync failed</span>{% endif %}
+          </div>
+        </div>
+        <dl class="api-key-meta">
+          <div><dt>Address</dt><dd>{{ c.url or 'Not set' }}</dd></div>
+          <div><dt>Key</dt><dd>{{ c.hint or 'Not set' }}</dd></div>
+          <div><dt>Conflicts</dt><dd>{{ c.conflicts }}</dd></div>
+        </dl>
+        <p class="hint">{% if c.result %}Last sync {{ c.result.at }}: {{ "{:,}".format(c.result.links) }} links, {% if c.result.filled or c.result.updated or c.result.new_players %}{{ c.result.filled }} filled in, {{ c.result.updated }} updated, {{ c.result.new_players }} new players{% else %}nothing new{% endif %}{% if c.result.waiting %}, {{ c.result.waiting }} waiting for a Steam name{% endif %}{% if c.result.bad %}, {{ c.result.bad }} unusable{% endif %}.<br>Filled since this key was added: {{ "{:,}".format(c.filled_total) }}.{% else %}Not synced yet.{% endif %}</p>
+        {% if c.error %}<div class="flash flash-error">{{ c.error }}</div>{% endif %}
+        <div class="api-key-actions">
+          <details class="api-key-edit">
+            <summary class="btn btn-sm">Edit</summary>
+            <form method="post" action="/admin/fragq/{{ c.id }}" class="fragq-form">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              {{ fragq_fields(c) }}
+              <button class="btn btn-primary btn-sm" type="submit">Save</button>
+            </form>
+          </details>
+          <form method="post" action="/admin/fragq/{{ c.id }}/test">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn btn-sm" type="submit">Test</button>
+          </form>
+          {% if not c.from_env %}
+          <form method="post" action="/admin/fragq/{{ c.id }}/delete" data-confirm="Remove the FragQ connection '{{ c.name }}'? Players keep the Discord IDs they have, but a verified label that no other trusted connection backs up becomes claimed.">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn btn-sm btn-danger" type="submit"><svg class="i"><use href="#i-trash"/></svg>Remove</button>
+          </form>
+          {% endif %}
+        </div>
+      </li>
+      {% else %}
+      <li class="api-empty muted">No FragQ connections yet.</li>
+      {% endfor %}
+    </ul>
+
+    <div class="form-row-inline">
+      <details class="api-create"{{ ' open' if not fq.connections }}>
+        <summary class="btn btn-primary btn-sm"><svg class="i"><use href="#i-plus"/></svg>Add connection</summary>
+        <form method="post" action="/admin/fragq" class="fragq-form">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          {{ fragq_fields() }}
+          <button class="btn btn-primary btn-sm" type="submit">Add connection</button>
+        </form>
+      </details>
+      {% if fq.connections %}
+      <form method="post" action="/admin/fragq/sync">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn btn-sm" type="submit"><svg class="i"><use href="#i-refresh"/></svg>{{ 'Syncing…' if fq.running else 'Sync now' }}</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if fq.conflicts %}
+    <details class="fragq-conflicts">
+      <summary>Conflicts ({{ fq.conflict_count }})</summary>
+      <p class="muted">Fragdex can't tell which of these is right, so it left the player as they are. To decide, open the player and enter the Discord ID by hand.</p>
+      <div class="scroll-x">
+      <table class="dtable">
+        <thead><tr><th>Player</th><th>In Fragdex</th><th>FragQ says</th></tr></thead>
+        <tbody>
+        {% for c in fq.conflicts %}
+          <tr><td><a href="/player/{{ c.steam_id }}">{{ c.name or c.steam_id }}</a></td><td>{% if c.fragdex %}<code>{{ c.fragdex }}</code>{% else %}<span class="faint">—</span>{% endif %}</td><td>{% for l in c.links %}<div>{{ l.connection }}: <code>{{ l.fragq }}</code> <span class="link-status link-{{ l.label }}">{{ l.label }}</span></div>{% endfor %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </details>
+    {% endif %}
+  </div>
+</section>
 
 <section class="panel" id="api">
   <div class="panel-head"><h2>Fragdex API</h2><span class="muted">{{ api_keys|length }} key{{ '' if api_keys|length == 1 else 's' }}</span></div>
@@ -87,7 +217,7 @@
       <label>Base URL</label>
       <div class="copy-field"><code>{{ api_url }}</code><button class="icon-btn" type="button" data-copy="{{ api_url }}" title="Copy base URL"><svg class="i"><use href="#i-copy"/></svg></button></div>
     </div>
-    {% if plugin %}<p class="api-plugin"><a class="btn btn-sm" href="/download/minqlx/fragdex.py"><svg class="i"><use href="#i-download"/></svg>minqlx plugin (fragdex.py)</a> <span class="muted">Records every connection live and warns admins in game about tagged or banned players. Needs a key with <em>Add records</em>.</span></p>{% endif %}
+    {% if plugin %}<p class="api-plugin"><a class="btn btn-sm" href="/download/minqlx/fragdex.py"><svg class="i"><use href="#i-download"/></svg>minqlx plugin (fragdex.py)</a> <span class="muted">Records every connection live and warns admins in game about tagged or banned players. Needs a key with <em>Add records</em>. Tick <em>Game server</em> too, so the Steam IDs it sends count as verified.</span></p>{% endif %}
 
     {% if new_key %}
     <div class="flash flash-ok new-key" role="status">
@@ -112,6 +242,7 @@
             {% if k.can_ips %}<span class="badge badge-plain">IPs</span>{% endif %}
             {% if k.can_notes %}<span class="badge badge-plain">Notes</span>{% endif %}
             {% if k.can_write %}<span class="badge badge-plain">Add records</span>{% endif %}
+            {% if k.game_server %}<span class="badge badge-plain">Game server</span>{% endif %}
           </div>
         </div>
         <dl class="api-key-meta">

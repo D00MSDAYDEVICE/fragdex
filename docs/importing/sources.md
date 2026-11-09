@@ -56,7 +56,8 @@ Lines without a timestamp are dated with the file's modification time. Log files
 | Aliases | Aliases, Alias, AKA, Other Names, Alt Names (split on `,` `;` `|` and ` / `) |
 | IP | IP Address, IP, IPs, IP Addresses, Address (several per cell allowed) |
 | Date | Date, Seen, Last Seen, Date Seen, Timestamp, Time, Seen At |
-| Discord ID | Discord ID, Discord, DiscordID, Discord User, Discord Username, Discord Name |
+| Discord ID | Discord ID, Discord, DiscordID. A sheet with no such column can use a username column instead. |
+| Discord username | Discord Name, Discord Username, Discord User |
 
 Steam IDs can be a SteamID64 (`76561197960287930`), `STEAM_0:0:11101`, `[U:1:22202]` or a `steamcommunity.com/profiles/…` link. Discord IDs can be a user ID, `<@mention>`, `discord.com/users/…` link or username (see [Discord ID](../guide/player-profile.md#discord-id)). A Discord ID from a spreadsheet fills in only where the player has none yet; invalid ones are ignored and counted in the import's details.
 
@@ -69,6 +70,21 @@ Frostbite,STEAM_0:1:19867137,frostbite,frosty,198.51.100.7 198.51.100.8,2026-10-
 ^3Halcyon,[U:1:39734279],,,192.0.2.14,
 Wraith,https://steamcommunity.com/profiles/76561198000000017,,wr4ith | ^4wraith^7.cfg,,2026-09-14 21:05
 ```
+
+### Link Discord accounts from a file
+
+A file with only a Steam ID column and a Discord ID column links accounts without adding records:
+
+```csv
+steamid,discordid,discord_name
+76561197960287930,80351110224678912,
+```
+
+- A player already in the database gets the Discord ID, unless they already have one.
+- A Steam ID that isn't in the database is left out, so the list doesn't fill up with nameless players. Import the same file again later to pick up players seen since.
+- A row with the two IDs the wrong way round is skipped, because the first column isn't a Steam ID.
+
+The import's line on the **Import** page says how many IDs were added, kept and left out. With a [Discord bot token](../administration/discord.md), Fragdex then looks up the usernames.
 
 !!! warning "Steam and Discord IDs saved as numbers"
     Excel stores long numbers with only 15 significant digits, so a Steam ID (17 digits) or Discord ID (17–20 digits) typed or pasted into a *General* or *Number* cell becomes something like `7.65611980147868E+16` and its last digits are lost for good. Fragdex skips such rows (or ignores such Discord IDs) and reports how many. Format both columns as **Text** before entering IDs, and open the sample CSV with **Data → From Text/CSV**, setting those columns to Text.

@@ -31,6 +31,13 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 STEAM_API_KEY_ENV = os.environ.get("STEAM_API_KEY", "").strip()
 STEAM_REFRESH_HOURS = _int("STEAM_REFRESH_HOURS", 24)
 
+DISCORD_BOT_TOKEN_ENV = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+DISCORD_REFRESH_DAYS = _int("DISCORD_REFRESH_DAYS", 7)
+
+FRAGQ_URL_ENV = os.environ.get("FRAGQ_URL", "").strip().rstrip("/")
+FRAGQ_KEY_ENV = os.environ.get("FRAGQ_KEY", "").strip()
+FRAGQ_SYNC_MINUTES = max(1, _int("FRAGQ_SYNC_MINUTES", 15))
+
 WATCH_INTERVAL = _int("WATCH_INTERVAL", 60)
 WATCH_SETTLE_SECONDS = _int("WATCH_SETTLE_SECONDS", 30)
 MAX_UPLOAD_MB = _int("MAX_UPLOAD_MB", 1024)

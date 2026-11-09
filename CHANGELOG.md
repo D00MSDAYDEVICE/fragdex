@@ -4,6 +4,31 @@ All notable changes to Fragdex. Versions follow [Semantic Versioning](https://se
 
 To update, see [Updating](https://d00msdaydevice.github.io/fragdex/administration/updating/). Existing databases are upgraded automatically when the new version starts.
 
+## 1.3.0 (2026-11-08)
+
+### Added
+
+- **Discord usernames.** With an optional Discord bot token (**Settings → Discord usernames** or `DISCORD_BOT_TOKEN`), Fragdex looks up the username for each Discord ID in the background and checks it again every 7 days.
+    - The Players page shows the username. Hover to see the ID, click to copy it.
+    - The player profile shows both, and search finds players by username.
+    - CSV exports and the API include `discord_name`, and `GET /discord/{id}` also matches looked-up usernames.
+- The Players page can be sorted by **Discord**, and has a **Has Discord** filter. The API has `sort=discord` and `has_discord=1`.
+- Spreadsheets and CSV files can have a separate `Discord Name` column next to the Discord ID.
+- **Verified Steam IDs.** A Steam ID from a demo, a log file or a game server's plugin is marked verified, because it can't be typed in by someone else. There is a **Verified Steam ID** filter, and `steam_verified` and `verified=1` in the API.
+    - API keys have a **Game server** option. Only records from a key with it count, and turning it on also counts the key's earlier records.
+- **FragQ links** (**Settings → FragQ links**, or `FRAGQ_URL` and `FRAGQ_KEY`). Fragdex reads the Discord account each player linked in FragQ every 15 minutes and labels it **verified** or **claimed**. Needs FragQ 1.1.0 or later, with a connector made with **Create Fragdex connector**.
+    - Several FragQ servers can feed one Fragdex, each with its own name, key, last result and **Trusted** setting. A new connection starts untrusted, and only a trusted one can mark a link verified.
+    - Each server's answer is kept separately and a player's value is worked out from all of them, so servers that disagree don't overwrite each other. Disagreements that can't be settled are listed as conflicts.
+    - Values entered by hand or imported are never overwritten. Differences are listed as conflicts on the Settings page.
+    - Players only FragQ knows about are added with their Steam name, under the new source **FragQ**.
+
+### Changed
+
+- A spreadsheet or CSV row with only a Steam ID and a Discord ID now just fills in the Discord ID of a player already in the database. It no longer adds an empty record or a nameless player. The import's message says how many IDs were added, kept or left out.
+- The **Discord ID** column on the Players page is now **Discord**.
+- A `.fdx` entry with an unknown type is imported as `manual` instead of `demo`, and API records in a `.fdx` keep the source `api` instead of becoming `demo`. Records from a **Game server** key stay verified.
+- API: `GET /discord/{id}` matches usernames in upper or lower case. Its response has a new `query` field with what was searched for, and the top-level `discord_id` is now `null` for a username search instead of repeating the username.
+
 ## 1.2.0 (2026-10-31)
 
 ### Added

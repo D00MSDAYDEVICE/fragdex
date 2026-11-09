@@ -1,4 +1,4 @@
-"""Background threads: import queue, watched folder scanner, Steam refresher."""
+"""Background threads: import queue, watched folder scanner, Steam and Discord refreshers."""
 import hashlib
 import logging
 import os
@@ -7,7 +7,7 @@ import threading
 import time
 import traceback
 
-from . import apikeys, config, db, steam
+from . import apikeys, config, db, discord_users, fragq, steam
 from .importers.common import file_kind
 from .importers.demo import parse_demo
 from .importers.export import read_export
@@ -17,10 +17,13 @@ from .importers.spreadsheet import parse_sheet
 log = logging.getLogger("fragdex.worker")
 _wake = threading.Event()
 _steam_wake = threading.Event()
+_discord_wake = threading.Event()
+_fragq_wake = threading.Event()
 _started = False
 # steam_state: idle | running | error | nokey;  steam_batch_secs: smoothed time per 100-player batch
 status = {"watch_last_scan": None, "watch_error": None, "steam_last_run": None, "steam_state": "idle",
-          "steam_batch_secs": None, "steam_next_run": None}
+          "steam_batch_secs": None, "steam_next_run": None, "discord_state": "idle", "discord_last_run": None,
+          "fragq_state": "idle"}
 
 
 def wake():
@@ -29,6 +32,14 @@ def wake():
 
 def wake_steam():
     _steam_wake.set()
+
+
+def wake_discord():
+    _discord_wake.set()
+
+
+def wake_fragq():
+    _fragq_wake.set()
 
 
 # Records added through the API arrive in small batches all the time; linked accounts are recalculated
@@ -109,8 +120,34 @@ def _mark_imported(conn, sha, filename, import_id):
 
 def _set_discord(conn, sid, discord):
     """Fill in a player's Discord ID from an import; one set by hand (or earlier) is kept."""
-    return conn.execute("UPDATE players SET discord_id=?, updated_at=? WHERE steam_id=? AND discord_id=''",
+    return conn.execute("UPDATE players SET discord_id=?, discord_source='import', updated_at=?"
+                        " WHERE steam_id=? AND discord_id=''",
                         (discord, db.now(), sid)).rowcount
+
+
+def _apply_sheet_discord(conn, stats):
+    """Discord IDs from a spreadsheet, for players already in the database.
+    Returns (the players it matched, text for the import's message)."""
+    added, kept, unknown = 0, 0, 0
+    matched = set()
+    for sid, discord in stats["discord"].items():
+        if _set_discord(conn, sid, discord):
+            added += 1
+        elif conn.execute("SELECT 1 FROM players WHERE steam_id=?", (sid,)).fetchone():
+            kept += 1
+        else:
+            unknown += 1
+            continue
+        matched.add(sid)
+    for sid, name in stats["discord_names"].items():
+        conn.execute("UPDATE players SET discord_name=? WHERE steam_id=? AND discord_id=? AND discord_name=''",
+                     (name, sid, stats["discord"][sid]))
+    msg = f"; {added} Discord IDs added" if added else ""
+    if kept:
+        msg += f"; {kept} players already had a Discord ID (kept)"
+    if unknown:
+        msg += f"; {unknown} Steam IDs not in the database yet (import this file again once they have been seen)"
+    return matched, msg
 
 
 def _apply_player_meta(conn, e):
@@ -142,7 +179,8 @@ def process_export(conn, job):
         nonlocal added
         with db.transaction(conn):
             for e in batch:
-                a, sids = db.add_sightings(conn, e["sightings"], e["kind"], e["file"], job["id"])
+                a, sids = db.add_sightings(conn, e["sightings"], e["kind"], e["file"], job["id"],
+                                           verified=True if e["verified"] else None)
                 added += a
                 all_sids.update(sids)
                 _mark_imported(conn, e["sha256"], e["file"], job["id"])
@@ -183,6 +221,7 @@ def process_export(conn, job):
                                      job["id"]))
     if job["origin"] == "upload" and not config.KEEP_UPLOADS:
         _remove(path)
+    wake_discord()
     return added
 
 
@@ -222,9 +261,9 @@ def process(conn, job):
         added, sids = db.add_sightings(conn, sightings, source, name, job["id"])
         db.refresh_players(conn, sids)
         if kind == "sheet":
-            discord_set = sum(_set_discord(conn, sid, d) for sid, d in stats["discord"].items())
-            if discord_set:
-                msg += f"; {discord_set} Discord IDs added"
+            matched, discord_msg = _apply_sheet_discord(conn, stats)
+            msg += discord_msg
+            sids |= matched
         if kind == "demo":
             _mark_imported(conn, job["sha256"], name, job["id"])
         if new_offset is not None:
@@ -236,6 +275,8 @@ def process(conn, job):
                          " finished_at=? WHERE id=?", (len(sids), added, skipped, msg, db.now(), job["id"]))
     if job["origin"] == "upload" and not config.KEEP_UPLOADS:
         _remove(path)
+    if kind == "sheet":
+        wake_discord()
     return added
 
 
@@ -325,6 +366,59 @@ def watcher():
         time.sleep(max(10, config.WATCH_INTERVAL))
 
 
+def discord_refresher():
+    while True:
+        delay = 3600
+        try:
+            with db.get_db() as conn:
+                token = db.discord_bot_token(conn)
+                if token:
+                    ids = discord_users.due(conn)
+                    if ids:
+                        status["discord_state"] = "running"
+                        discord_users.refresh(conn, token, ids)
+                        if len(ids) == discord_users.BATCH:
+                            delay = 1
+                    if delay > 1:
+                        status["discord_state"] = "idle"
+                    status["discord_last_run"] = db.now()
+                    db.set_setting(conn, "discord_last_error", "")
+                else:
+                    status["discord_state"] = "nokey"
+        except discord_users.RateLimited as e:
+            log.info("%s", e)
+            delay = e.retry_after + 1
+        except Exception as e:  # noqa: BLE001
+            log.warning("discord lookup failed: %s", e)
+            status["discord_state"] = "error"
+            try:
+                with db.get_db() as conn:
+                    db.set_setting(conn, "discord_last_error", f"{db.now()}: {e}"[:300])
+            except Exception:  # noqa: BLE001
+                pass
+            delay = 900
+        _discord_wake.wait(delay)
+        _discord_wake.clear()
+
+
+def fragq_sync():
+    while True:
+        try:
+            with db.get_db() as conn:
+                status["fragq_state"] = "running"
+                changed = fragq.sync_all(conn)
+            status["fragq_state"] = "idle"
+            if changed["discord"]:
+                wake_discord()
+            if changed["players"]:
+                wake_steam()
+        except Exception as e:  # noqa: BLE001 - keep the thread alive
+            log.warning("FragQ sync failed: %s", e)
+            status["fragq_state"] = "idle"
+        _fragq_wake.wait(config.FRAGQ_SYNC_MINUTES * 60)
+        _fragq_wake.clear()
+
+
 def steam_refresher():
     last_batch = None
     while True:
@@ -373,5 +467,5 @@ def start():
     if _started:
         return
     _started = True
-    for target in (import_worker, watcher, steam_refresher):
+    for target in (import_worker, watcher, steam_refresher, discord_refresher, fragq_sync):
         threading.Thread(target=target, name=target.__name__, daemon=True).start()

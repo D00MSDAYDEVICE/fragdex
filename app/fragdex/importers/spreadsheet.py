@@ -8,6 +8,8 @@ Players.xlsx layout and simpler CSVs both work:
   ip      : IP Address, IP, IPs
   date    : Date, Seen, Last Seen, Timestamp
   discord : Discord ID, Discord, Discord Username   (one per player; kept with the player)
+  discord_name : Discord Name, Discord Username   (the username, when the sheet also has a Discord ID column)
+A row with only a Steam ID and a Discord ID fills in that player's Discord ID and adds no record.
 Rows whose Steam ID was stored as a number (e.g. 7.65611980147868E+16) have
 lost digits and are skipped.
 """
@@ -24,7 +26,8 @@ HEADERS = {
     "aliases": {"aliases", "alias", "aka", "other names", "alt names"},
     "ip": {"ip address", "ip", "ips", "ip addr", "ip addresses", "address"},
     "date": {"date", "seen", "last seen", "date seen", "timestamp", "time", "seen at"},
-    "discord": {"discord id", "discord", "discordid", "discord user", "discord username", "discord name"},
+    "discord": {"discord id", "discord", "discordid", "discord userid", "discord user id"},
+    "discord_name": {"discord name", "discord username", "discord user"},
 }
 ALIAS_SPLIT_RE = re.compile(r"\s*(?:,|;|\||\s/\s)\s*")
 IP_SPLIT_RE = re.compile(r"[\s,;|]+")
@@ -39,11 +42,13 @@ def _map_header(row):
         for field, names in HEADERS.items():
             if field not in cols and (key in names or key.replace(" ", "") in names):
                 cols[field] = i
+    if "discord" not in cols and "discord_name" in cols:     # a username is all this sheet has
+        cols["discord"] = cols.pop("discord_name")
     return cols if "steam" in cols else None
 
 
 def _rows_to_sightings(rows):
-    stats = {"rows": 0, "skipped_bad_id": 0, "skipped_no_id": 0, "bad_discord": 0, "discord": {}}
+    stats = {"rows": 0, "skipped_bad_id": 0, "skipped_no_id": 0, "bad_discord": 0, "discord": {}, "discord_names": {}}
     out = []
     cols = None
     for row in rows:
@@ -70,15 +75,20 @@ def _rows_to_sightings(rows):
         name = normalize_name(cell("name"))
         seen = parse_date(cell("date"))
         ips = [ip for ip in (normalize_ip(p) for p in IP_SPLIT_RE.split(str(cell("ip") or ""))) if ip]
-        for ip in ips or [""]:
-            out.append(Sighting(steam_id=sid, name=name, ip=ip, seen_at=seen))
+        discord = None
         raw_discord = cell("discord")
         if raw_discord not in (None, ""):
             discord = normalize_discord_id(raw_discord)
             if discord:
                 stats["discord"][sid] = discord
+                discord_name = str(cell("discord_name") or "").strip()[:40]
+                if discord_name:
+                    stats["discord_names"][sid] = discord_name
             else:
                 stats["bad_discord"] += 1
+        if name or ips or not discord:     # else there is no sighting here, only a link to a Discord account
+            for ip in ips or [""]:
+                out.append(Sighting(steam_id=sid, name=name, ip=ip, seen_at=seen))
         aliases = cell("aliases")
         if aliases not in (None, ""):
             for alias in ALIAS_SPLIT_RE.split(str(aliases)):
@@ -95,7 +105,8 @@ def parse_xlsx(path):
 
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
-        all_out, total = [], {"rows": 0, "skipped_bad_id": 0, "skipped_no_id": 0, "bad_discord": 0, "discord": {}}
+        all_out, total = [], {"rows": 0, "skipped_bad_id": 0, "skipped_no_id": 0, "bad_discord": 0, "discord": {},
+                              "discord_names": {}}
         found = False
         for ws in wb.worksheets:
             try:
@@ -105,7 +116,7 @@ def parse_xlsx(path):
             found = True
             all_out.extend(out)
             for k in total:
-                if k == "discord":
+                if isinstance(total[k], dict):
                     total[k].update(stats[k])
                 else:
                     total[k] += stats[k]

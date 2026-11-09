@@ -7,14 +7,14 @@ Both buttons sit at the top of the **Players** page and export **the players in 
 | For | spreadsheets, sharing a list | backups, moving or merging servers |
 | Contents | one summary row per player | every record of every player, plus notes, tags and Discord IDs |
 | History | aliases and IPs joined into one cell, undated | complete: each name and IP with its date, source and server |
-| Re-import into Fragdex | as a spreadsheet: loses dates and sources | **lossless** |
+| Re-import into Fragdex | as a spreadsheet: loses dates and sources | keeps every record, with its date, source and server |
 | Size (1,714 players, 34,565 records) | 270 KB | **328 KB** |
 
 ## CSV
 
 One row per player, ready for Excel, LibreOffice or Google Sheets. Columns:
 
-`steam_id`, `discord_id`, `name` (colour codes removed), `name_raw` (with colour codes), `last_ip`, `first_seen`, `last_seen`, `aliases`, `ips`, `linked_accounts`, `tags`, `notes`, `steam_persona`, `vac_bans`, `game_bans`, `steam_profile` (link)
+`steam_id`, `discord_id`, `discord_name`, `name` (colour codes removed), `name_raw` (with colour codes), `last_ip`, `first_seen`, `last_seen`, `aliases`, `ips`, `linked_accounts`, `tags`, `notes`, `steam_persona`, `vac_bans`, `game_bans`, `steam_profile` (link), `steam_verified`, `discord_status`
 
 !!! tip "Keep Steam IDs as text"
     Excel turns 17-digit Steam IDs into numbers such as `7.65611980147868E+16` and silently loses the last digits. When opening the CSV in Excel, import it with **Data → From Text/CSV** and set the `steam_id` and `discord_id` columns to **Text**. Discord user IDs are even longer than Steam IDs and are damaged the same way.

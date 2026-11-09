@@ -12,7 +12,7 @@ Type in the search box and press ++enter++ or **Search**. One box covers everyth
 |---|---|
 | A name, such as `rail` | who used a name containing it, at any time. Case and Quake colour codes are ignored, so `railgun` finds <span class="q1">Rail</span>gun. Also matches the current Steam name. |
 | A Steam ID, such as `76561198` | whose SteamID64 starts with it. |
-| A Discord ID or username, such as `80351110224678912` or `frostbite` | whose [Discord ID](player-profile.md#discord-id) contains it. |
+| A Discord ID or username, such as `80351110224678912` or `frostbite`, including usernames [looked up from Discord](../administration/discord.md) | whose [Discord ID](player-profile.md#discord-id) contains it. |
 | An IP address, such as `203.0.113.45` | seen on that IP. A partial address such as `203.0.113.` matches the whole range by prefix. |
 | A CIDR range, such as `203.0.113.0/24` or `2001:db8::/32` | seen on any IP inside the range (IPv4 or IPv6). |
 | Any word from a note, such as `aimbot` | whose notes contain it. |
@@ -29,6 +29,8 @@ The row under the search box narrows the list further. Drop-downs and check boxe
 | **Any source** | players with at least one record from demos, logs, XLSX, CSV or manual entry. |
 | **Any ban status** | *VAC banned*, *Any Steam ban* (VAC, game or community ban) or *No bans*. Only shown once a [Steam Web API key](../administration/steam.md) is set. |
 | **Has IP** | players with at least one known IP address. Demos contain no IPs, so this hides demo-only players. |
+| **Has Discord** | players with a Discord ID or username. |
+| **Verified Steam ID** | players whose Steam ID came from a demo, a log or a game server. See [Verified Steam IDs](../administration/fragq.md#verified-steam-ids). |
 | **Has linked accounts** | players who share an IP with another Steam ID. See [Linked accounts](linked-accounts.md). |
 | **Last seen** from / to | players last seen within the date range. |
 | **50 / page** | 25, 50, 100 or 250 players per page. |
@@ -41,7 +43,7 @@ Filters combine with the search: `203.0.113.0/24` plus *Has linked accounts* plu
 |---|---|
 | **Player** | Avatar (with a Steam key), the latest name in its Quake colours, the current Steam name when it differs, and a **VAC** or **BAN** badge for banned accounts. Click the name to open the [player profile](player-profile.md). |
 | **Steam ID** | The SteamID64. The Steam icon opens the Steam profile in a new tab. |
-| **Discord ID** | The player's Discord user ID or username, if known. For a numeric ID the Discord icon opens their Discord profile. A dash means none is set. |
+| **Discord** | The player's Discord username, if known, otherwise their user ID. Hover over a username to see the ID, and click to copy the ID. For a numeric ID the Discord icon opens their Discord profile. A link from [FragQ](../administration/fragq.md) is labelled **verified** or **claimed**. A dash means none is set. |
 | **IP Address** | The latest known IP. |
 | **History** | Small icons with counts. **Names**: other names the player used; **IPs**: every IP address they were seen on. Click either to see the list with dates. A highlighted **link** icon appears when the player has [linked accounts](linked-accounts.md); click it to jump to them. |
 | **Tags** | The player's tags. |
@@ -50,6 +52,8 @@ Filters combine with the search: `203.0.113.0/24` plus *Has linked accounts* plu
 ### Sorting
 
 Click a column heading to sort by it; click again to reverse. The list is sorted by **Last seen**, newest first, by default.
+
+**Discord** sorts by username. Players with only a numeric ID come after those, and players with no Discord come last, whichever way the list is sorted.
 
 The icon in the **History** heading sorts by **most aliases**, so the players who change names most come first. Click it again to go back to newest first.
 

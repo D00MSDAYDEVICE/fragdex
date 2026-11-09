@@ -32,7 +32,8 @@ Every following line is an entry. A **file entry** holds the records from one sc
 | Field | |
 |---|---|
 | `file` | Original file name. |
-| `kind` | `demo` or `log` from fragdex-scan; also `csv`, `xlsx` or `manual` in a server export. |
+| `kind` | `demo` or `log` from fragdex-scan; also `csv`, `xlsx`, `manual`, `api` or `fragq` in a server export. An entry without a known kind is imported as `manual`. Only `demo` and `log` count as [verified Steam IDs](../administration/fragq.md#verified-steam-ids). |
+| `verified` | `true` on an `api` group added with a [Game server](../administration/fragq.md#verified-steam-ids) key, in a server export. Those records then count as verified on the server that imports the file. Ignored on every other kind. |
 | `sha256` | SHA-256 of the original file, used to skip files the server already has. Empty for groups of records in a server export. |
 | `size` | Size of the original file in bytes. |
 | `map`, `server` | From the demo, if known. |

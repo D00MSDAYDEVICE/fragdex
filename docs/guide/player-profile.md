@@ -36,7 +36,7 @@ First and last seen, Discord ID, latest IP, number of names, IPs and linked acco
 
 ## Discord ID
 
-One Discord account per player, shown in the header (with a link to the Discord profile for numeric IDs), in the Summary and in the **Discord ID** column of the Players page. Editors can set, change or clear it in the **Discord ID** panel: leave the field empty and press **Save** to remove it.
+One Discord account per player, shown in the header (with a link to the Discord profile for numeric IDs), in the Summary and in the **Discord** column of the Players page. With a [Discord bot token](../administration/discord.md), the username is looked up and shown next to the ID. A link from [FragQ](../administration/fragq.md) is labelled **verified** or **claimed**, and a Steam ID that came from a demo, a log or a game server shows a **Verified Steam ID** badge. Editors can set, change or clear it in the **Discord ID** panel: leave the field empty and press **Save** to remove it.
 
 Accepted values:
 
