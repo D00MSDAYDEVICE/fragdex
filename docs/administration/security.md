@@ -28,7 +28,7 @@ Fragdex stores IP addresses linked to player identities. In many countries (incl
 - **Use a dedicated Discord bot** for [username lookups](discord.md), not one with permissions in your servers. Its token is stored in the database like the Steam key, or set `DISCORD_BOT_TOKEN` in `.env` instead.
 - **Limit FragQ's connector key.** A Fragdex connector's key can read every Steam and Discord link of that Discord server's members. Create it with **Create Fragdex connector** so it can do nothing else, and enter the address Fragdex connects from under **Allowed IPs**. It is stored in the database like the Steam key, or set `FRAGQ_KEY` in `.env` instead.
 - **Trust a FragQ connection only if you trust its admin.** A trusted connection can mark any Steam account as verified, and a modified FragQ can send anything. New connections start out untrusted, so everything they send counts as claimed.
-- **Tick Game server only on a game server's key.** Records from that key count as [verified Steam IDs](fragq.md#verified-steam-ids), and a script with it could add any Steam ID.
+- **Tick Game server only on a key for a game server or the [QLSM addon](../integrations/qlsm-addon.md).** Records from that key count as [verified Steam IDs](fragq.md#verified-steam-ids), and a script with it could add any Steam ID. If several admins send logs, give each their own key.
 - **Give each program its own API key** with only the access it needs, restricted to its address where possible. Rotate a key that may have leaked.
 - **Use Hide IPs** when screen-sharing or streaming.
 - **Keep Docker and Fragdex updated.** See [Updating](updating.md).

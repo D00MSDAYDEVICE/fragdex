@@ -4,6 +4,17 @@ All notable changes to Fragdex. Versions follow [Semantic Versioning](https://se
 
 To update, see [Updating](https://d00msdaydevice.github.io/fragdex/administration/updating/). Existing databases are upgraded automatically when the new version starts.
 
+## 1.4.0 (2026-11-09)
+
+### Added
+
+- **QLSM addon**, downloaded from the **Fragdex API** panel and installed from QLSM's **Settings → Addons**. For each server you choose, it sends the connections in its chat logs to Fragdex and shows Fragdex tags and bans in the Live Status player list. A **Fragdex Players** panel lists who is connected, with whether their Steam ID is verified, their Discord, VAC and game bans, and buttons to copy their Discord name, Discord ID and Steam ID.
+- API: `POST /logs` adds connection lines from a chat log, for keys with **Add records** and **Game server**. `GET /status` now reports a key's `game_server` option.
+
+### Fixed
+
+- **Security: forged records from minqlx chat logs.** A player could type a chat message or vote, or use a specially made name, that Fragdex read as another player's connection, which recorded a false Steam ID and IP. Log records count as verified Steam IDs, so these did too. Only complete connection lines are read now.
+
 ## 1.3.0 (2026-11-08)
 
 ### Added

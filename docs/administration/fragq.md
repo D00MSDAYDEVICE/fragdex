@@ -82,7 +82,8 @@ To settle a conflict, open the player and enter the right Discord ID by hand. A 
 Separately from the label on the Discord link, a player gets a **verified** mark on their Steam ID when it comes from the game itself, because it can't be typed in by someone else:
 
 - a demo or a server or minqlx log file, including demo and log records in a `.fdx` file;
-- the [minqlx plugin](../integrations/minqlx-plugin.md), when its API key has **Game server** ticked. A `.fdx` export keeps this status.
+- the [minqlx plugin](../integrations/minqlx-plugin.md), when its API key has **Game server** ticked. A `.fdx` export keeps this status;
+- the [QLSM addon](../integrations/qlsm-addon.md), which sends chat logs.
 
 Spreadsheets, manual records, other API keys and FragQ don't count. The **Verified Steam ID** filter on the Players page shows only these players.
 

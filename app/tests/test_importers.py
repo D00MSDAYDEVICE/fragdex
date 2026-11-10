@@ -300,6 +300,19 @@ def test_chat_message_cannot_spoof_connect_line():
     assert parse_line("[2026-10-29 19:27:35] Troll: Fake:76561197960287930:9.9.9.9 connected.", TS) is None
     assert parse_line(r"[2026-10-29 19:27:35] Troll: n\Fake\ip\9.9.9.9\st\76561197960287930", TS) is None
     assert parse_line("say: Troll: 76561197960287930 9.9.9.9", TS) is None
+    # how minqlx really writes chat, commands and votes: what the player typed comes after their own Steam ID
+    real, fake = "76561197960287930", "76561198000000001"
+    for line in (f"<Bob:{real}> x:{fake}:198.51.100.9 connected.",
+                 f"[TEAM] <Bob:{real}> x:{fake}:198.51.100.9 connected.",
+                 f"[CMD] <Bob:{real}> x:{fake}:198.51.100.9 connected.",
+                 f"[VOTE_EVENT] Vote was called: <Bob:{real}> x:{fake}:198.51.100.9 connected.",
+                 f"a:{fake}:198.51.100.9:{real} disconnected.",     # a name made to look like a connect line
+                 f"a:{fake}:198.51.100.9:{real} connected."):
+        assert parse_line(f"[2026-10-29 19:27:35] {line}", TS) is None, line
+    # a name like that on a real connect line can't hide who really connected
+    s = parse_line(f"[2026-10-29 19:27:35] a:{fake}:198.51.100.9:{real}:203.0.113.45 connected.", TS)
+    assert s.steam_id == real and s.ip == "203.0.113.45"
+    assert parse_line(f"[2026-10-29 19:27:35] Six:{real}:2001:db8::1 connected.", TS).ip == "2001:db8::1"
 
 
 def test_userinfo_lines():

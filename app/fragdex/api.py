@@ -3,6 +3,7 @@
 Every request needs an API key from Settings, sent as "Authorization: Bearer <key>" (or "X-API-Key: <key>").
 What a key may see or change is set per key: IP addresses, notes and adding records are separate permissions.
 """
+import dataclasses
 import ipaddress
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -12,12 +13,14 @@ from starlette.concurrency import run_in_threadpool
 from . import __version__, apikeys, db, worker
 from .importers.common import (Sighting, clean_name, normalize_discord_id, normalize_ip, normalize_name,
                                normalize_steam_id, parse_date)
+from .importers.logs import parse_connect_line
 
 router = APIRouter(prefix="/api/v1")
 
 MAX_PAGE = 500
 MAX_LOOKUP = 100
 MAX_RECORDS = 1000
+MAX_LOG_LINES = 5000
 BANS = ("vac", "any", "clean")
 SOURCES = ("demo", "log", "xlsx", "csv", "manual", "api", "fragq")
 
@@ -144,7 +147,8 @@ def status(key=Depends(api_key)):
         records = conn.execute("SELECT COUNT(*) FROM sightings").fetchone()[0]
     return {"app": "fragdex", "version": __version__, "players": players, "records": records,
             "key": {"name": key["name"], "ips": bool(key["can_ips"]), "notes": bool(key["can_notes"]),
-                    "write": bool(key["can_write"]), "rate_limit": key["rate_limit"] or None,
+                    "write": bool(key["can_write"]), "game_server": bool(key["game_server"]),
+                    "rate_limit": key["rate_limit"] or None,
                     "expires": key["expires_at"] or None}}
 
 
@@ -304,6 +308,35 @@ async def _json(request):
         return await request.json()
     except ValueError:
         raise ApiError(400, "The request body must be JSON.") from None
+
+
+@router.post("/logs")
+async def add_logs(request: Request, key=Depends(api_key)):
+    """Connection lines from a minqlx chat log, e.g. from the QLSM addon: "[time] name:steamid:ip connected.", with the
+    time in UTC. Stored as log records, whose Steam IDs count as verified, so the key must be a game server's.
+    Body: {"server": "...", "lines": ["...", ...]}. Lines Fragdex already has, or that aren't connections, are skipped."""
+    _need(key, "can_write", "add records")
+    _need(key, "game_server", "add logs without the Game server option")
+    body = await _json(request)
+    lines = body.get("lines") if isinstance(body, dict) else None
+    if not isinstance(lines, list) or not lines or not all(isinstance(x, str) for x in lines):
+        raise ApiError(400, "Send {\"lines\": [...]} with 1 to %d chat log lines." % MAX_LOG_LINES)
+    if len(lines) > MAX_LOG_LINES:
+        raise ApiError(400, f"At most {MAX_LOG_LINES} lines per request.")
+    server = clean_name(str(body.get("server") or ""))[:80]
+    good = [dataclasses.replace(s, server=server) for s in map(parse_connect_line, lines) if s]
+
+    def run():
+        with db.get_db() as conn, db.transaction(conn):
+            added, sids = db.add_sightings(conn, good, "log", f"qlsm: {server}" if server else "qlsm")
+            db.refresh_players(conn, sids)
+        return added, sids
+
+    added, sids = await run_in_threadpool(run) if good else (0, set())
+    if added:
+        worker.api_records_added()
+    return {"lines": len(lines), "added": added, "skipped": len(good) - added, "ignored": len(lines) - len(good),
+            "players": len(sids)}
 
 
 @router.post("/records")

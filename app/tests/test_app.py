@@ -536,8 +536,8 @@ def test_api_keys_and_permissions(client):
     assert client.get("/api/v1/status").status_code == 401
     assert _api(client, "fdx_wrong", "/status").status_code == 401
     r = client.get("/api/v1/status", headers={"X-API-Key": key})
-    assert r.status_code == 200 and r.json()["key"] == {"name": "Discord bot", "ips": False, "notes": False,
-                                                        "write": False, "rate_limit": 120, "expires": None}
+    assert r.status_code == 200 and r.json()["key"] == {"name": "Discord bot", "ips": False, "notes": False, "write": False,
+                                                        "game_server": False, "rate_limit": 120, "expires": None}
     assert r.headers["x-ratelimit-limit"] == "120"
 
     # read-only key: no writes, no IP addresses anywhere, IP search doesn't match
@@ -617,6 +617,31 @@ def test_api_discord_lookup(client):
         assert [p["steam_id"] for p in lookup(q)["players"]] == [sid], q
     p = lookup("typed.username")["players"][0]
     assert p["discord_id"] == "typed.username" and p["discord_name"] is None
+
+
+def test_api_logs_route(client):
+    assert login(client).status_code == 303
+    game, _ = _create_key(client, name="Log sender", can_write="1", game_server="1")
+    plain, _ = _create_key(client, name="Plain writer", can_write="1")
+    reader, _ = _create_key(client, name="Reader")
+    sid, fake = "76561198000000890", "76561198000000891"
+    line = f"[2026-03-01 12:00:00] LogRoute:{sid}:203.0.113.8 connected."
+    body = {"server": "^1CA ^7#2", "lines": [line]}
+    assert _api(client, reader, "/logs", "POST", json=body).status_code == 403
+    assert "Game server" in _api(client, plain, "/logs", "POST", json=body).json()["error"]
+    assert _api(client, game, "/logs", "POST", json={"lines": []}).status_code == 400
+    assert _api(client, game, "/logs", "POST", json={"lines": [1]}).status_code == 400
+    assert _api(client, game, "/logs", "POST", json={"lines": ["x"] * 5001}).status_code == 400
+
+    forged = f"[2026-03-01 12:00:01] <Bob:{sid}> x:{fake}:198.51.100.9 connected."
+    undated = f"LogRoute:{sid}:203.0.113.9 connected."
+    r = _api(client, game, "/logs", "POST", json={**body, "lines": [line, forged, undated, "junk"]}).json()
+    assert r == {"lines": 4, "added": 1, "skipped": 0, "ignored": 3, "players": 1}
+    assert _api(client, game, "/logs", "POST", json=body).json()["added"] == 0
+    with db.get_db() as conn:
+        row = conn.execute("SELECT source, source_ref, server, verified FROM sightings WHERE steam_id=?", (sid,)).fetchone()
+        assert tuple(row) == ("log", "qlsm: CA #2", "CA #2", 1)
+        assert conn.execute("SELECT COUNT(*) FROM players WHERE steam_id=?", (fake,)).fetchone()[0] == 0
 
 
 def test_verified_steam_ids(client, tmp_path):
@@ -1114,6 +1139,7 @@ def test_viewer_role(client):
     assert client.get("/admin/settings").status_code == 403
     assert client.post("/admin/api-keys", data={"csrf": token, "name": "x"}).status_code == 403
     assert client.get("/download/minqlx/fragdex.py").status_code == 403
+    assert client.get("/download/qlsm/fragdex-qlsm-addon.zip").status_code == 403
     r = client.get("/player/76561197960287930")
     assert r.status_code == 200 and "/notes" not in r.text
 

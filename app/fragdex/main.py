@@ -947,7 +947,7 @@ def _settings(request, user, new_key=None):
                   api_keys=keys,
                   new_key=new_key,
                   api_url=str(request.base_url).rstrip("/") + api.router.prefix, default_rate=apikeys.DEFAULT_RATE,
-                  max_rate=apikeys.MAX_RATE, plugin=os.path.isfile(MINQLX_PLUGIN))
+                  max_rate=apikeys.MAX_RATE, plugin=os.path.isfile(MINQLX_PLUGIN), qlsm_addon=qlsm_addon_version())
 
 
 def _api_key_form(form):
@@ -1155,6 +1155,38 @@ def download_minqlx_plugin(request: Request):
     if not os.path.isfile(MINQLX_PLUGIN):
         raise NotFound()
     return FileResponse(MINQLX_PLUGIN, media_type="text/x-python; charset=utf-8", filename="fragdex.py")
+
+
+QLSM_ADDON = os.path.join(HERE, "downloads", "qlsm")
+QLSM_ADDON_FILES = ("qlsm-addon.json", "backend.py", "assets/collect_connections.py", "playbooks/collect_connections.yml",
+                    "ui/Players.js", "ui/Players.css")
+
+
+def qlsm_addon_version():
+    try:
+        with open(os.path.join(QLSM_ADDON, "qlsm-addon.json"), encoding="utf-8") as f:
+            return str(json.load(f)["version"])
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def qlsm_addon_zip():
+    """The QLSM addon as QLSM's Settings → Addons → Install takes it, built from the files shipped with Fragdex."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for rel in QLSM_ADDON_FILES:
+            z.write(os.path.join(QLSM_ADDON, *rel.split("/")), rel)
+    return buf.getvalue()
+
+
+@app.get("/download/qlsm/fragdex-qlsm-addon.zip")
+def download_qlsm_addon(request: Request):
+    require(request, "admin")
+    version = qlsm_addon_version()
+    if version is None:
+        raise NotFound()
+    return Response(qlsm_addon_zip(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="fragdex-qlsm-addon-{version}.zip"'})
 
 
 def _steam_status(conn):

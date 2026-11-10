@@ -218,6 +218,7 @@
       <div class="copy-field"><code>{{ api_url }}</code><button class="icon-btn" type="button" data-copy="{{ api_url }}" title="Copy base URL"><svg class="i"><use href="#i-copy"/></svg></button></div>
     </div>
     {% if plugin %}<p class="api-plugin"><a class="btn btn-sm" href="/download/minqlx/fragdex.py"><svg class="i"><use href="#i-download"/></svg>minqlx plugin (fragdex.py)</a> <span class="muted">Records every connection live and warns admins in game about tagged or banned players. Needs a key with <em>Add records</em>. Tick <em>Game server</em> too, so the Steam IDs it sends count as verified.</span></p>{% endif %}
+    {% if qlsm_addon %}<p class="api-plugin"><a class="btn btn-sm" href="/download/qlsm/fragdex-qlsm-addon.zip"><svg class="i"><use href="#i-download"/></svg>QLSM addon (fragdex-qlsm-addon-{{ qlsm_addon }}.zip)</a> <span class="muted">For servers managed by QLSM: sends the connections in their chat logs, adds Fragdex to Live Status and a Players panel with copyable IDs. Install it in QLSM under <em>Settings → Addons</em>. Needs a key with <em>Add records</em> and <em>Game server</em>.</span></p>{% endif %}
 
     {% if new_key %}
     <div class="flash flash-ok new-key" role="status">

@@ -72,7 +72,7 @@ The server's version and size, and what the key may do. Use it to test a key.
 
 ```json
 {"app": "fragdex", "version": "1.2.0", "players": 1714, "records": 34565,
- "key": {"name": "Discord bot", "ips": false, "notes": false, "write": false, "rate_limit": 120, "expires": null}}
+ "key": {"name": "Discord bot", "ips": false, "notes": false, "write": false, "game_server": false, "rate_limit": 120, "expires": null}}
 ```
 
 ### `GET /players`
@@ -148,6 +148,17 @@ The players with a Discord ID: a user ID, a mention (`<@80351110224678912>`) or 
 `query` is what was searched for. The top-level `discord_id` is that same value for a numeric ID and `null` for a username. Each player has their own `discord_id` and `discord_name`. A player's `discord_id` can hold a username instead of a number if that is what was entered for them, and `discord_name` is `null` until a username has been looked up.
 
 `steam_verified` is `true` when the Steam ID came from a demo, a log or a game server. `discord_status` is `verified` or `claimed` for a [link from FragQ](../administration/fragq.md#claimed-and-verified), otherwise `null`.
+
+### `POST /logs`
+
+Add connection lines from a minqlx chat log, as the [QLSM addon](qlsm-addon.md) does. Needs **Add records** and **Game server**, because these become **log** records, whose Steam IDs count as verified.
+
+```json
+{"server": "Thunderdome CA #1",
+ "lines": ["[2026-10-31 19:27:35] Railgun:76561197960287930:203.0.113.45 connected."]}
+```
+
+Up to 5000 lines per request, with times in UTC. Only complete connection lines are stored. The answer says how many were `added`, `skipped` as already known and `ignored` as not being connections.
 
 ### `POST /records`
 

@@ -1,0 +1,56 @@
+{
+  "id": "fragdex",
+  "version": "1.1.2",
+  "name": "Fragdex",
+  "description": "Sends player connections from each server's chat logs to Fragdex, and shows Fragdex tags and bans in the Live Status player list.",
+  "scopes": ["global", "host", "instance"],
+  "ui_api": 4,
+
+  "settings": {
+    "global": [
+      { "key": "fragdex_url", "type": "string", "label": "Fragdex address", "description": "For example https://fragdex.example.com" },
+      { "key": "api_key", "type": "secret", "label": "API key", "description": "A Fragdex API key with Add records and Game server ticked, and nothing else." },
+      { "key": "interval_minutes", "type": "number", "label": "Check logs every (minutes)", "default": 15, "min": 1, "max": 1440 },
+      { "key": "verify_tls", "type": "bool", "label": "Check Fragdex's HTTPS certificate", "default": true, "description": "Turn off only if Fragdex uses its own self-signed certificate." }
+    ],
+    "instance": [
+      { "key": "sync_logs", "type": "bool", "label": "Send chat log connections to Fragdex", "default": true, "description": "An instance running the fragdex minqlx plugin only sends its history once, since the plugin reports new connections itself." },
+      { "key": "show_column", "type": "bool", "label": "Show the Fragdex column in Live Status", "default": true },
+      { "key": "sent_up_to", "type": "string", "label": "Sent up to", "description": "Filled in automatically, in the server's local time. Clear it and save to send this server's history again." },
+      { "key": "history_sent", "type": "bool", "label": "History has been sent", "default": false, "description": "Filled in automatically." }
+    ]
+  },
+
+  "ui": {
+    "icon": "database",
+
+    "settings_section": { "label": "Fragdex", "icon": "database", "panel": "global_form" },
+    "host_menu": [
+      { "id": "host", "label": "Fragdex", "icon": "database", "panel": "host_form" }
+    ],
+    "instance_menu": [
+      { "id": "instance", "label": "Fragdex Settings", "icon": "settings", "panel": "instance_form" },
+      { "id": "players", "label": "Fragdex Players", "icon": "database", "component": "Players.js", "renders": "modal" }
+    ],
+    "live_status_columns": [
+      { "id": "fragdex", "label": "Fragdex", "icon": "database", "route": "GET instances/{instance_id}/players" }
+    ],
+
+    "panels": {
+      "global_form": {
+        "kind": "form",
+        "description": "Turn this on, then turn it on for each host and each server you want. Only the servers you enable are read.",
+        "status": { "load": "GET connection" }
+      },
+      "host_form": {
+        "kind": "form",
+        "description": "Allow Fragdex on this host. Each server on it still has its own switch."
+      },
+      "instance_form": {
+        "kind": "form",
+        "description": "Only connection lines leave the server. Player chat stays on the host.",
+        "status": { "load": "GET instances/{instance_id}/status" }
+      }
+    }
+  }
+}

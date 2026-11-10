@@ -1,0 +1,26 @@
+---
+# Reads connection lines from the chat logs of the given servers and writes them to a file on the QLSM side.
+# Everything is passed through the environment, so no value is ever treated as shell syntax.
+- name: Collect player connections for Fragdex
+  hosts: all
+  become: yes
+  gather_facts: false
+
+  tasks:
+    - name: Read connection lines from the chat logs
+      ansible.builtin.command:
+        cmd: python3 -
+        stdin: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../assets/collect_connections.py') }}"
+      environment:
+        FRAGDEX_TARGETS: "{{ fragdex_targets | to_json }}"
+        FRAGDEX_LIMIT: "{{ fragdex_limit }}"
+      register: collected
+      changed_when: false
+
+    - name: Hand the result to QLSM
+      ansible.builtin.copy:
+        content: "{{ collected.stdout }}"
+        dest: "{{ fragdex_dest }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false

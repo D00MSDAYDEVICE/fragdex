@@ -32,6 +32,9 @@ Designed for flexibility and portability, Fragdex includes the `fragdex-scan` de
   69 KB app with a window; elsewhere a single Python script.
 - **JSON API** for other programs (Discord bots, scripts, other Fragdex servers), with named
   keys whose access, allowed IPs, rate limit and expiry can be changed without a new key.
+- **QLSM addon**: for servers run with [QLSM](https://github.com/dngrtech/qlsm), collects connections from
+  their chat logs, shows Fragdex tags and bans in the Live Status player list, and adds a Players panel
+  with copyable Discord and Steam IDs. Download it from the API panel.
 - **fragdex minqlx plugin** (minqlx and minqlxtended): every connection is recorded live,
   and admins are warned in game when a tagged or banned player, or one linked to them, joins.
 - Users with roles: **viewer** (search/view/export), **editor** (+ import, edit),
@@ -192,6 +195,10 @@ qlx !fragdex key fdx_...
 qlx !fragdex test
 ```
 
+The **QLSM addon** (also on the API panel) does the same for servers managed by QLSM without
+touching them: it reads their chat logs. See the
+[QLSM addon docs](https://d00msdaydevice.github.io/fragdex/integrations/qlsm-addon/).
+
 See the [plugin docs](https://d00msdaydevice.github.io/fragdex/integrations/minqlx-plugin/).
 
 With `TLS_MODE=off` behind another reverse proxy, set `TRUSTED_PROXIES` to that proxy's
@@ -317,7 +324,8 @@ covers the player data and is easier to move or share.
 │   │   ├── fragq.py          Steam and Discord links from FragQ
 │   │   ├── importers/        demo / log / spreadsheet / .fdx parsers
 │   │   ├── scanner.py        fragdex-scan CLI (also bundled as a standalone script)
-│   │   ├── downloads/        prebuilt fragdex-scan.exe and the minqlx plugin (minqlx/fragdex.py)
+│   │   ├── downloads/        prebuilt fragdex-scan.exe, the minqlx plugin (minqlx/fragdex.py)
+│   │   │                     and the QLSM addon (qlsm/), zipped when it is downloaded
 │   │   ├── templates/  static/
 │   ├── scanner-win/          the Windows fragdex-scan app (C#, WinForms)
 │   ├── tests/

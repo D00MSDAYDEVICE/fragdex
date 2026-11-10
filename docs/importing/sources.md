@@ -29,7 +29,7 @@ Connection lines from minqlx chat logs give the most complete records: name, Ste
 ```
 
 !!! tip "Live instead of logs"
-    The [fragdex minqlx plugin](../integrations/minqlx-plugin.md) sends the same information to Fragdex the moment a player connects, so you don't need to collect chat logs at all. Its records have the source **API**.
+    The [fragdex minqlx plugin](../integrations/minqlx-plugin.md) sends the same information to Fragdex the moment a player connects, so you don't need to collect chat logs at all. Its records have the source **API**. The [QLSM addon](../integrations/qlsm-addon.md) collects chat logs automatically from servers managed by QLSM.
 
 ## Server console logs
 
@@ -41,7 +41,7 @@ From Quake Live server and minqlx console logs (`.log` or `.txt`), Fragdex picks
 2. **Any other line with exactly one SteamID64 and exactly one IP address**, recorded without a name.
 
 !!! info "Chat cannot inject records"
-    Rules 1 and 2 are skipped for chat lines (`say:`, `say_team:`, `tell:` and so on), so players cannot type fake Steam IDs or IPs into chat and have them recorded.
+    Rules 1 and 2 are skipped for chat lines (`say:`, `say_team:`, `tell:` and so on). In minqlx chat logs, only a complete `name:steamid:ip connected.` line counts, and chat, commands and votes are never read as one. Players cannot type fake Steam IDs or IPs into chat and have them recorded.
 
 Lines without a timestamp are dated with the file's modification time. Log files in the watched folder are **followed**: only lines added since the last scan are read.
 

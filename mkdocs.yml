@@ -85,6 +85,7 @@ nav:
   - Integrations:
       - API: integrations/api.md
       - minqlx Plugin: integrations/minqlx-plugin.md
+      - QLSM Addon: integrations/qlsm-addon.md
   - Administration:
       - Users And Roles: administration/users.md
       - Steam Web API: administration/steam.md

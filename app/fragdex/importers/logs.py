@@ -20,7 +20,10 @@ from .common import (STEAM64_ANY_RE, STEAM64_RE, Sighting, clean_name, fmt_dt,
                      normalize_ip, normalize_name, parse_date)
 
 TS_RE = re.compile(r"^\[?(\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d)(?:[.,]\d+)?\]?\s*")
-CHATLOG_RE = re.compile(r"^(?P<name>.+):(?P<sid>7656119\d{10}):(?P<ip>[0-9A-Fa-f.:]+)(?:\s+(?P<rest>.*))?$")
+# The address allows no port, so a name like "a:<steamid>:1.2.3.4" can't pose as one on a line that isn't a connect.
+CHATLOG_RE = re.compile(r"^(?P<name>.+):(?P<sid>7656119\d{10}):"
+                        r"(?P<ip>(?:\d{1,3}\.){3}\d{1,3}|[0-9A-Fa-f]*:[0-9A-Fa-f:]+) connected\.$")
+SPEAKER_RE = re.compile(r":7656119\d{10}> ")     # "<Name:steamid> text": anything after it was typed by a player
 CHAT_PREFIX_RE = re.compile(r"^\s*(say|say_team|sayteam|tell|chat|tchat|print|broadcast)\b", re.I)
 IPV4_RE = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?(?![\d.])")
 INFO_NAME_KEYS = ("n", "name")
@@ -35,6 +38,46 @@ def _parse_info_tail(line: str) -> dict:
     return {parts[i].lower(): parts[i + 1] for i in range(0, len(parts) - 1, 2)}
 
 
+def _connect_sighting(body: str, ts: str):
+    """A chat log's "name:steamid:ip connected." line, or None. Chat, commands and votes are logged with what the
+    player typed at the end, so a message could otherwise end in something that looks like a connect line."""
+    m = CHATLOG_RE.match(body)
+    if not m or SPEAKER_RE.search(body):
+        return None
+    name = m.group("name").strip()
+    ip = normalize_ip(m.group("ip"))
+    if ip and ": " not in name and len(clean_name(name)) <= 40:
+        return Sighting(steam_id=m.group("sid"), name=normalize_name(name), ip=ip, seen_at=ts)
+    return None
+
+
+def parse_connect_line(line: str):
+    """A timestamped connect line only, for logs sent through the API. Returns a Sighting or None."""
+    m = TS_RE.match(line)
+    ts = parse_date(m.group(1)) if m else None
+    return _connect_sighting(line[m.end():], ts) if ts else None
+
+
+def _connect_sighting(body: str, ts: str):
+    """A chat log's "name:steamid:ip connected." line, or None. Chat, commands and votes are logged with what the
+    player typed at the end, so a message could otherwise end in something that looks like a connect line."""
+    m = CHATLOG_RE.match(body)
+    if not m or SPEAKER_RE.search(body):
+        return None
+    name = m.group("name").strip()
+    ip = normalize_ip(m.group("ip"))
+    if ip and ": " not in name and len(clean_name(name)) <= 40:
+        return Sighting(steam_id=m.group("sid"), name=normalize_name(name), ip=ip, seen_at=ts)
+    return None
+
+
+def parse_connect_line(line: str):
+    """A timestamped connect line only, for logs sent through the API. Returns a Sighting or None."""
+    m = TS_RE.match(line)
+    ts = parse_date(m.group(1)) if m else None
+    return _connect_sighting(line[m.end():], ts) if ts else None
+
+
 def parse_line(line: str, default_ts: str):
     """Return a Sighting or None."""
     line = line.lstrip("﻿").rstrip("\r\n")
@@ -47,13 +90,9 @@ def parse_line(line: str, default_ts: str):
         ts = parse_date(m.group(1)) or default_ts
         body = line[m.end():]
 
-    m = CHATLOG_RE.match(body)
-    if m:
-        name = m.group("name").strip()
-        ip = normalize_ip(m.group("ip"))
-        # A chat message ("[ts] Name: text") can't be mistaken for a connect line.
-        if ip and ": " not in name and len(clean_name(name)) <= 40:
-            return Sighting(steam_id=m.group("sid"), name=normalize_name(name), ip=ip, seen_at=ts)
+    s = _connect_sighting(body, ts)
+    if s:
+        return s
 
     # Everything below could be typed by a player in chat, so never trust it in
     # chat logs ("[timestamp] ...") or on server-log chat lines.
