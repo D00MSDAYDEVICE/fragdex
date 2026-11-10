@@ -33,7 +33,7 @@ CURSOR_RE = re.compile(r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$')
 STEAM_RE = re.compile(r'^7656119\d{10}$')
 
 _ctx = None
-_last_run = 0.0
+_last_run = None         # monotonic time of the last run; None until the first, which is at once
 
 
 class FragdexError(Exception):
@@ -170,7 +170,7 @@ def _tick():
     global _last_run
     cfg = _config()
     now = time.monotonic()
-    if not _configured(cfg) or now - _last_run < max(1, int(cfg['interval_minutes'])) * 60:
+    if not _configured(cfg) or (_last_run is not None and now - _last_run < max(1, int(cfg['interval_minutes'])) * 60):
         return
     _last_run = now
     try:

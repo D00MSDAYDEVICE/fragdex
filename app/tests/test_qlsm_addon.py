@@ -256,7 +256,7 @@ def test_addon_long_history_continues_and_failure_keeps_position(addon, client):
 
 def test_addon_tick_queues_on_the_chosen_interval(addon):
     addon.ctx.settings.set("global", 0, {"fragdex_url": "http://testserver", "api_key": "k", "interval_minutes": 15})
-    addon.backend._last_run = 0.0
+    addon.backend._last_run = None      # monotonic time can be smaller than the interval, as on a host that just started
     addon.backend._tick()
     assert addon.job.queued == [(1,)]
     addon.backend._tick()        # 15 seconds later: not yet
