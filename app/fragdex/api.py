@@ -148,8 +148,19 @@ def status(key=Depends(api_key)):
     return {"app": "fragdex", "version": __version__, "players": players, "records": records,
             "key": {"name": key["name"], "ips": bool(key["can_ips"]), "notes": bool(key["can_notes"]),
                     "write": bool(key["can_write"]), "game_server": bool(key["game_server"]),
+                    "discord_token": bool(key["can_discord_token"]),
                     "rate_limit": key["rate_limit"] or None,
                     "expires": key["expires_at"] or None}}
+
+
+@router.get("/discord/token")
+def discord_token(key=Depends(api_key)):
+    _need(key, "can_discord_token", "read the Discord bot token")
+    with db.get_db() as conn:
+        token = db.discord_bot_token(conn)
+    if not token:
+        raise ApiError(503, "The Discord bot token is not configured.")
+    return {"token": token}
 
 
 @router.get("/players")

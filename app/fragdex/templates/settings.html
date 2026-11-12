@@ -94,6 +94,7 @@
     <label class="check"><input type="checkbox" name="can_ips" value="1" {{ 'checked' if k and k.can_ips }}> See IP addresses</label>
     <label class="check"><input type="checkbox" name="can_notes" value="1" {{ 'checked' if k and k.can_notes }}> See notes</label>
     <label class="check"><input type="checkbox" name="can_write" value="1" {{ 'checked' if k and k.can_write }}> Add records</label>
+    <label class="check" title="Allows this key to retrieve the Discord bot token"><input type="checkbox" name="can_discord_token" value="1" {{ 'checked' if k and k.can_discord_token }}> Read Discord bot token</label>
     <label class="check" title="Only for a game server's plugin: a script with this key could add any Steam ID"><input type="checkbox" name="game_server" value="1" {{ 'checked' if k and k.game_server }}> Game server: records count as verified</label>
   </div>
 {% endmacro %}
@@ -243,6 +244,7 @@
             {% if k.can_ips %}<span class="badge badge-plain">IPs</span>{% endif %}
             {% if k.can_notes %}<span class="badge badge-plain">Notes</span>{% endif %}
             {% if k.can_write %}<span class="badge badge-plain">Add records</span>{% endif %}
+            {% if k.can_discord_token %}<span class="badge badge-plain">Discord token</span>{% endif %}
             {% if k.game_server %}<span class="badge badge-plain">Game server</span>{% endif %}
           </div>
         </div>
