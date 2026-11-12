@@ -503,9 +503,13 @@ async def player_steam(request: Request, sid: str):
     require(request, "editor")
     valid_sid(sid)
     await checked_form(request)
-    try:
+
+    def run():      # SQLite connections stay on the thread that opened them
         with db.get_db() as conn:
-            await run_in_threadpool(steam.refresh, conn, [sid])
+            steam.refresh(conn, [sid])
+
+    try:
+        await run_in_threadpool(run)
         flash(request, "Steam data refreshed.")
     except Exception as e:  # noqa: BLE001
         flash(request, f"Steam refresh failed: {e}", "error")
