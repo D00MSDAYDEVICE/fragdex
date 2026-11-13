@@ -1166,3 +1166,28 @@ def test_viewer_role(client):
 def test_security_headers(client):
     r = client.get("/login")
     assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+
+
+def test_refresh_steam_button(client, monkeypatch):
+    """The Steam lookup runs on a worker thread, so it needs a database connection of its own."""
+    from fragdex import steam
+    from fragdex.importers.common import Sighting
+    sid = "76561198000000777"
+    with db.get_db() as conn:
+        with db.transaction(conn):
+            db.add_sightings(conn, [Sighting(steam_id=sid, name="Refresh")], "demo")
+            db.refresh_players(conn, [sid])
+        db.set_setting(conn, "steam_api_key", "not-a-real-steam-key")
+    monkeypatch.setattr(steam, "fetch", lambda key, ids: ({sid: {"personaname": "Refreshed"}},
+                                                          {sid: {"NumberOfVACBans": 1, "NumberOfGameBans": 0}}))
+    try:
+        assert login(client).status_code == 303
+        token = csrf_of(client.get(f"/player/{sid}").text)
+        r = client.post(f"/player/{sid}/steam", data={"csrf": token}, follow_redirects=True)
+        assert "Steam data refreshed." in r.text and "Steam refresh failed" not in r.text
+        with db.get_db() as conn:
+            row = conn.execute("SELECT steam_persona, vac_bans FROM players WHERE steam_id=?", (sid,)).fetchone()
+        assert tuple(row) == ("Refreshed", 1)
+    finally:
+        with db.get_db() as conn:
+            db.set_setting(conn, "steam_api_key", "")

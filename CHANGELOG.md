@@ -4,6 +4,12 @@ All notable changes to Fragdex. Versions follow [Semantic Versioning](https://se
 
 To update, see [Updating](https://d00msdaydevice.github.io/fragdex/administration/updating/). Existing databases are upgraded automatically when the new version starts.
 
+## 1.4.1 (2026-11-12)
+
+### Fixed
+
+- **Refresh Steam** on a player's page failed with "SQLite objects created in a thread can only be used in that same thread". The background Steam checks were not affected.
+
 ## 1.4.0 (2026-11-09)
 
 ### Added
