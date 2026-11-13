@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS api_keys(
     can_ips INTEGER NOT NULL DEFAULT 0,
     can_notes INTEGER NOT NULL DEFAULT 0,
     can_write INTEGER NOT NULL DEFAULT 0,
+    can_discord_token INTEGER NOT NULL DEFAULT 0,
     game_server INTEGER NOT NULL DEFAULT 0,   -- records added with this key count as verified
     allowed_ips TEXT NOT NULL DEFAULT '',     -- space separated IPs / CIDR ranges; empty = any
     rate_limit INTEGER NOT NULL DEFAULT 120,  -- requests per minute; 0 = unlimited
@@ -246,6 +247,8 @@ def init_db():
                              " WHERE s.steam_id = players.steam_id AND s.verified = 1)")
         if "game_server" not in {r["name"] for r in conn.execute("PRAGMA table_info(api_keys)")}:
             conn.execute("ALTER TABLE api_keys ADD COLUMN game_server INTEGER NOT NULL DEFAULT 0")
+        if "can_discord_token" not in {r["name"] for r in conn.execute("PRAGMA table_info(api_keys)")}:
+            conn.execute("ALTER TABLE api_keys ADD COLUMN can_discord_token INTEGER NOT NULL DEFAULT 0")
         _migrate_fragq(conn)
         # jobs interrupted by a restart go back in the queue
         conn.execute("UPDATE imports SET status='queued' WHERE status='running'")

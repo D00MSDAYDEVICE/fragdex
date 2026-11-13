@@ -965,7 +965,9 @@ def _api_key_form(form):
         return None, error
     return {"name": name, "allowed_ips": allowed, "rate_limit": rate, "expires_at": expires,
             "can_ips": int(form.get("can_ips") == "1"), "can_notes": int(form.get("can_notes") == "1"),
-            "can_write": int(form.get("can_write") == "1"), "game_server": int(form.get("game_server") == "1")}, None
+            "can_write": int(form.get("can_write") == "1"),
+            "can_discord_token": int(form.get("can_discord_token") == "1"),
+            "game_server": int(form.get("game_server") == "1")}, None
 
 
 def _api_key_row(conn, key_id):
@@ -985,11 +987,12 @@ async def api_key_create(request: Request):
         return back("/admin/settings#api")
     key, key_hash, prefix = apikeys.new_key()
     with db.get_db() as conn:
-        conn.execute("""INSERT INTO api_keys(name, prefix, key_hash, can_ips, can_notes, can_write, game_server,
+        conn.execute("""INSERT INTO api_keys(name, prefix, key_hash, can_ips, can_notes, can_write, can_discord_token, game_server,
                         allowed_ips, rate_limit, expires_at, created_by, created_at)
-                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                      (values["name"], prefix, key_hash, values["can_ips"], values["can_notes"], values["can_write"],
-                      values["game_server"], values["allowed_ips"], values["rate_limit"], values["expires_at"], user["username"], db.now()))
+                      values["can_discord_token"], values["game_server"], values["allowed_ips"], values["rate_limit"],
+                      values["expires_at"], user["username"], db.now()))
     # rendered straight away rather than redirected, so the key never passes through the session cookie
     return _settings(request, user, new_key={"name": values["name"], "key": key})
 
@@ -1005,11 +1008,12 @@ async def api_key_update(request: Request, key_id: int):
             flash(request, error, "error")
             return back("/admin/settings#api")
         with db.transaction(conn):
-            conn.execute("""UPDATE api_keys SET name=?, can_ips=?, can_notes=?, can_write=?, game_server=?, allowed_ips=?,
+            conn.execute("""UPDATE api_keys SET name=?, can_ips=?, can_notes=?, can_write=?, can_discord_token=?,
+                            game_server=?, allowed_ips=?,
                             rate_limit=?, expires_at=? WHERE id=?""",
                          (values["name"], values["can_ips"], values["can_notes"], values["can_write"],
-                          values["game_server"], values["allowed_ips"], values["rate_limit"], values["expires_at"],
-                          key_id))
+                          values["can_discord_token"], values["game_server"], values["allowed_ips"],
+                          values["rate_limit"], values["expires_at"], key_id))
             if values["game_server"] != row["game_server"]:
                 db.mark_api_records(conn, {row["name"], values["name"]}, values["game_server"])
     apikeys.limiter.reset(key_id)

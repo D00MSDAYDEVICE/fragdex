@@ -25,10 +25,28 @@ The same file works on **minqlx** and **minqlxtended**, and needs nothing beyond
 
 The URL and key are saved in the bot's database (Redis), so they survive restarts. Several game servers can share one key, but a key per server shows in Fragdex which server sent what and lets you restrict each key to its server's address.
 
+### Supplying the Discord bot token to another plugin
+
+If another minqlx plugin needs the Discord bot token stored in Fragdex, create a separate API key with **Read Discord bot token** enabled, no other optional permissions, and the game server's public egress IP under **Allowed IPs**. That plugin can use `GET /api/v1/discord/token` with `Authorization: Bearer <API key>`. Do not reuse the record-upload key: the token-read permission is separate.
+
 !!! warning "Never type the key in chat"
     The plugin refuses `!fragdex key` from chat, because the line has already been sent to the server as a chat message by then. If it happens, **Rotate** the key in Fragdex and set the new one from the console.
 
 Instead of the commands, you can set the cvars `qlx_fragdexUrl` and `qlx_fragdexKey` in `server.cfg`. Values set with the commands take precedence.
+
+## QL Mover Discord token integration
+
+The `discord_ql_mover` plugin can fetch Fragdex's configured Discord bot token at load time and refresh it in the background. In Fragdex, create a separate API key for QL Mover. Enable **Read Discord bot token**, leave the other optional permissions off, and set **Allowed IPs** to the game server's public egress IP. The key authenticates with `Authorization: Bearer`; do not use the admin login credentials or your record-upload key.
+
+Set these cvars in `server.cfg`:
+
+```text
+set qlx_fragdex_api_url "https://fragdex.example.com/api/v1"
+set qlx_fragdex_api_key "<Fragdex API key with Read Discord bot token permission>"
+set qlx_fragdex_token_refresh_interval "3600"
+```
+
+The API URL defaults to `https://fragdex.kr3m.one/api/v1`, the API key defaults to empty, and the refresh interval defaults to 3600 seconds. Set the interval to `0` to fetch only at plugin load. The token is cached in memory and is not logged; a failed fetch leaves the last successfully cached token in place. If no token is obtained yet, QL Mover will skip Discord moves but the game server remains available.
 
 ## Commands
 

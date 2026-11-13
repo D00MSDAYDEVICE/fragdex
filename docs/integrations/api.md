@@ -25,6 +25,7 @@ All of these can be changed at any time with **Edit**, without a new key. Change
 | **See IP addresses** | Include IP addresses in replies and allow searching by IP. Off by default. |
 | **See notes** | Include player notes in replies and allow searching them. Off by default. |
 | **Add records** | Allow `POST /records`, which adds records to the database. Needed by the minqlx plugin. |
+| **Read Discord bot token** | Allow `GET /discord/token` to retrieve the configured Discord bot token. Treat this key as a bot credential and restrict it to the caller's IP. |
 | **Game server** | Records added with this key count as [verified Steam IDs](../administration/fragq.md#verified-steam-ids). Only for a game server's plugin. |
 
 Every key can read players: names, aliases, Steam IDs, tags, Discord IDs, Steam bans and linked accounts. A key without **See IP addresses** still sees *which* accounts are linked, but not the shared addresses.
@@ -72,8 +73,24 @@ The server's version and size, and what the key may do. Use it to test a key.
 
 ```json
 {"app": "fragdex", "version": "1.2.0", "players": 1714, "records": 34565,
- "key": {"name": "Discord bot", "ips": false, "notes": false, "write": false, "game_server": false, "rate_limit": 120, "expires": null}}
+ "key": {"name": "Discord bot", "ips": false, "notes": false, "write": false, "game_server": false, "discord_token": false, "rate_limit": 120, "expires": null}}
 ```
+
+### `GET /discord/token`
+
+Returns the configured Discord bot token. This endpoint requires a key with **Read Discord bot token** enabled; it returns `403` otherwise and `503` if no token is configured. The token can be set in Fragdex settings or through `DISCORD_BOT_TOKEN`, which takes precedence.
+
+```json
+{"token": "<Discord bot token>"}
+```
+
+For example:
+
+```bash
+curl -H "Authorization: Bearer <API key>" https://fragdex.example.com/api/v1/discord/token
+```
+
+Keep the API key as carefully as the Discord token itself. Give it only to the server that needs the token and set **Allowed IPs** to that server's egress IP where possible. Fragdex never writes the returned token to its API request logs.
 
 ### `GET /players`
 

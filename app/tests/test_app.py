@@ -537,7 +537,8 @@ def test_api_keys_and_permissions(client):
     assert _api(client, "fdx_wrong", "/status").status_code == 401
     r = client.get("/api/v1/status", headers={"X-API-Key": key})
     assert r.status_code == 200 and r.json()["key"] == {"name": "Discord bot", "ips": False, "notes": False, "write": False,
-                                                        "game_server": False, "rate_limit": 120, "expires": None}
+                                                        "game_server": False, "discord_token": False,
+                                                        "rate_limit": 120, "expires": None}
     assert r.headers["x-ratelimit-limit"] == "120"
 
     # read-only key: no writes, no IP addresses anywhere, IP search doesn't match
@@ -583,6 +584,24 @@ def test_api_keys_and_permissions(client):
     # usage reaches the Settings page
     page = client.get("/admin/settings").text
     assert "Discord bot" in page and "Never" not in page.split("Discord bot", 1)[1].split("Last used", 1)[1][:80]
+
+
+def test_api_discord_token_requires_permission(client):
+    with db.get_db() as conn:
+        db.set_setting(conn, "discord_bot_token", "test-token-without-real-credential")
+    key, _ = _create_key(client, name="QL Mover")
+    assert _api(client, key, "/discord/token").status_code == 403
+
+    token_key, _ = _create_key(client, name="QL Mover token", can_discord_token="1")
+    response = _api(client, token_key, "/discord/token")
+    assert response.status_code == 200
+    assert response.json() == {"token": "test-token-without-real-credential"}
+
+    with db.get_db() as conn:
+        db.set_setting(conn, "discord_bot_token", "")
+    response = _api(client, token_key, "/discord/token")
+    assert response.status_code == 503
+    assert response.json() == {"error": "The Discord bot token is not configured."}
 
 
 def test_api_discord_lookup(client):
