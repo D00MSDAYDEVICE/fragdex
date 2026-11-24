@@ -717,8 +717,13 @@ def test_verified_steam_ids(client, tmp_path):
 
 
 class _FakeFragq:
-    def __init__(self, status, body):
-        self.status_code, self.body, self.seen = status, body, {}
+    """Stands in for httpx.Client and its streamed response."""
+    def __init__(self, status, body, chunk=16, length=True):
+        import json
+        self.status_code, self.seen, self.chunk = status, {}, chunk
+        self.raw = json.dumps(body).encode()
+        self.headers = {"content-length": str(len(self.raw))} if length else {}
+        self.num_bytes_downloaded = 0
 
     def __enter__(self):
         return self
@@ -726,12 +731,23 @@ class _FakeFragq:
     def __exit__(self, *exc):
         return False
 
-    def get(self, url, headers):
+    def stream(self, method, url, headers):
         self.seen = {"url": url, "headers": headers}
         return self
 
+    def iter_bytes(self):
+        for i in range(0, len(self.raw), self.chunk):
+            piece = self.raw[i:i + self.chunk]
+            self.num_bytes_downloaded = i + len(piece)
+            yield piece
+
+    def read(self):
+        self.num_bytes_downloaded = len(self.raw)
+        return self.raw
+
     def json(self):
-        return self.body
+        import json
+        return json.loads(self.raw)
 
 
 def test_fragq_fetch(monkeypatch):
@@ -743,15 +759,67 @@ def test_fragq_fetch(monkeypatch):
     assert fake.seen == {"url": "https://fragq.test/api/connect/v1/steam/links",
                          "headers": {"Authorization": "Bearer fq_secret"}}
     for status, body, expected in ((404, {}, "Update FragQ"), (401, {"error": "Invalid connector key."}, "Invalid connector key"),
-                                   (403, {"error": "Not allowed."}, "Read linked accounts"), (200, {"nope": 1}, "wasn't a list"),
+                                   (403, {}, "Read linked accounts"), (200, {"nope": 1}, "wasn't a list"),
                                    (200, None, "wasn't a list")):
         monkeypatch.setattr(fragq, "_client", lambda: _FakeFragq(status, body))
         with pytest.raises(RuntimeError) as err:
             fragq.fetch("https://fragq.test", "fq_secret")
         assert expected in str(err.value) and "fq_secret" not in str(err.value)
+    # FragQ's own reason is shown alone, without a guess that may not apply
+    monkeypatch.setattr(fragq, "_client", lambda: _FakeFragq(403, {"error": "This connector key can't be used from 203.0.113.9."}))
+    with pytest.raises(RuntimeError) as err:
+        fragq.fetch("https://fragq.test", "fq_secret")
+    assert str(err.value) == "FragQ returned HTTP 403. This connector key can't be used from 203.0.113.9."
     assert fragq.parse_url(" https://fragq.test/ ") == ("https://fragq.test", None)
     assert fragq.parse_url("") == ("", None)
     assert fragq.parse_url("javascript:alert(1)")[0] is None
+
+
+def test_fragq_reports_real_progress(monkeypatch):
+    """Each stage reports what has actually been received or processed."""
+    from fragdex import fragq
+
+    links = [{"steam_id": f"7656119800000{i:04d}", "discord_id": f"8035111022467{i:04d}", "verified_by": ""} for i in range(450)]
+    fake = _FakeFragq(200, {"links": links}, chunk=4096)
+    monkeypatch.setattr(fragq, "_client", lambda: fake)
+    seen = []
+    with db.get_db() as conn:
+        conn.execute("DELETE FROM fragq_connections")
+        fragq.add_connection(conn, "First", "https://one.test", "key-one-aaaaaaaaaaaa")
+        fragq.add_connection(conn, "Second", "https://two.test", "key-two-bbbbbbbbbbbb")
+        fragq.sync_all(conn, lambda **p: seen.append(p))
+    size = len(fake.raw)
+    download = [p for p in seen if p["stage"] == "download" and p["connection"] == "First"]
+    assert download[0]["done"] == 0 and download[-1]["done"] == size and all(p["total"] == size for p in download)
+    assert [p["done"] for p in download] == sorted(p["done"] for p in download) and len(download) > 2
+    for stage, total in (("save", 450), ("match", 450)):
+        counts = [p for p in seen if p["stage"] == stage and p["connection"] == "First"]
+        assert counts[0]["done"] == 0 and counts[-1]["done"] == total == counts[-1]["total"]
+    assert {(p["connection"], p["number"], p["count"]) for p in seen} == {("First", 1, 2), ("Second", 2, 2)}
+
+    # no Content-Length: the bytes still count, with the total unknown
+    monkeypatch.setattr(fragq, "_client", lambda: _FakeFragq(200, {"links": []}, length=False))
+    seen.clear()
+    fragq.fetch("https://one.test", "key", lambda **p: seen.append(p))
+    assert seen[-1]["done"] > 0 and seen[-1]["total"] is None
+
+
+def test_fragq_progress_route(client, monkeypatch):
+    from fragdex import worker
+
+    assert login(client).status_code == 303
+    assert client.get("/admin/settings/fragq.json").json() == {"running": False}
+    monkeypatch.setitem(worker.status, "fragq_state", "running")
+    monkeypatch.setitem(worker.status, "fragq_started", time.time() - 5)
+    monkeypatch.setitem(worker.status, "fragq_progress", dict(connection="Community A", number=1, count=2,
+                                                               stage="download", done=512, total=2048))
+    p = client.get("/admin/settings/fragq.json").json()
+    assert (p["running"], p["connection"], p["stage"], p["done"], p["total"], p["percent"]) == (True, "Community A", "download", 512, 2048, 25)
+    assert 4 <= p["elapsed"] <= 7
+    monkeypatch.setitem(worker.status, "fragq_progress", dict(connection="A", number=1, count=1, stage="download", done=99, total=None))
+    assert client.get("/admin/settings/fragq.json").json()["percent"] is None      # unknown size: no made-up percentage
+    monkeypatch.setitem(worker.status, "fragq_progress", None)
+    assert client.get("/admin/settings/fragq.json").json()["stage"] == "start"
 
 
 def _fq_players(*sids):
@@ -918,7 +986,7 @@ def test_fragq_one_connection_failing_leaves_the_others(monkeypatch):
     good, stays = "76561198000000980", "76561198000000981"
     _fq_players(good, stays)
 
-    def fetch(url, key):
+    def fetch(url, key, report=None):
         if "down" in url:
             raise RuntimeError("Couldn't reach FragQ")
         return [_fq_link(good, 1, "steam")]
@@ -944,7 +1012,7 @@ def test_fragq_filled_total_per_key(monkeypatch):
     one, two, three = (f"7656119800000096{i}" for i in range(3))
     _fq_players(one, two, three)
     links = []
-    monkeypatch.setattr(fragq, "fetch", lambda url, key: list(links))
+    monkeypatch.setattr(fragq, "fetch", lambda url, key, report=None: list(links))
     with db.get_db() as conn:
         conn.execute("DELETE FROM fragq_connections")
         cid = fragq.add_connection(conn, "A", "https://a.test", "key-a", trusted=True)
@@ -1000,7 +1068,7 @@ def test_fragq_settings_and_labels(client, monkeypatch):
     from fragdex import fragq
 
     assert login(client).status_code == 303
-    monkeypatch.setattr(fragq, "fetch", lambda url, key: [{"a": 1}, {"b": 2}])
+    monkeypatch.setattr(fragq, "fetch", lambda url, key, report=None: [{"a": 1}, {"b": 2}])
     with db.get_db() as conn:
         conn.execute("DELETE FROM fragq_connections")
 
@@ -1029,12 +1097,12 @@ def test_fragq_settings_and_labels(client, monkeypatch):
         a = fragq.connection(conn, a["id"])
     assert (a["name"], a["url"], a["key"], a["trusted"]) == ("Renamed", "https://other.test", key, 1)
 
-    def fail(url, k):
+    def fail(url, k, report=None):
         raise RuntimeError("FragQ returned HTTP 403.")
 
     monkeypatch.setattr(fragq, "fetch", fail)
     assert "failed: FragQ returned HTTP 403." in post(f"/admin/fragq/{a['id']}/test").text
-    monkeypatch.setattr(fragq, "fetch", lambda url, k: [])
+    monkeypatch.setattr(fragq, "fetch", lambda url, k, report=None: [])
 
     # the labels show on the pages, and in the CSV and API
     sid, other = "76561198000000950", "76561198000000951"
@@ -1140,6 +1208,7 @@ def test_viewer_role(client):
     assert client.post("/admin/api-keys", data={"csrf": token, "name": "x"}).status_code == 403
     assert client.get("/download/minqlx/fragdex.py").status_code == 403
     assert client.get("/download/qlsm/fragdex-qlsm-addon.zip").status_code == 403
+    assert client.get("/admin/settings/fragq.json").status_code == 403
     r = client.get("/player/76561197960287930")
     assert r.status_code == 200 and "/notes" not in r.text
 
@@ -1172,3 +1241,69 @@ def test_refresh_steam_button(client, monkeypatch):
     finally:
         with db.get_db() as conn:
             db.set_setting(conn, "steam_api_key", "")
+
+
+def test_player_page_caps_names(client):
+    """A player with many names shows the latest 40, with the rest one click away, and every other panel."""
+    from fragdex.importers.common import Sighting
+    sid = "76561198000000888"
+    with db.get_db() as conn:
+        with db.transaction(conn):
+            db.add_sightings(conn, [Sighting(steam_id=sid, name=f"Alias{i:02d}", ip="198.51.100.88",
+                                             seen_at=f"2026-01-01 00:{i:02d}:00") for i in range(45)], "demo")
+            db.refresh_players(conn, [sid])
+    assert login(client).status_code == 303
+    page = client.get(f"/player/{sid}").text
+    assert "Names (45)" in page and "showing latest 40" in page and f'href="/player/{sid}?names=all#names"' in page
+    assert "Alias44" in page and "Alias05" in page and "Alias04" not in page.split("IP addresses (", 1)[0]
+    for panel in ("IP addresses (1)", "Linked accounts (", "All records (45)"):
+        assert panel in page
+    page = client.get(f"/player/{sid}?names=all").text
+    assert "Alias00" in page.split("IP addresses (", 1)[0] and "Show the latest 40 only" in page
+    assert "Names (45)" in page and "showing latest" not in page.split("IP addresses (", 1)[0]
+
+    # records: the latest 50, then all of them; each panel's button keeps the other one's choice
+    with db.get_db() as conn, db.transaction(conn):
+        db.add_sightings(conn, [Sighting(steam_id=sid, ip=f"198.51.100.{i}", seen_at=f"2025-06-01 00:{i:02d}:00")
+                                for i in range(10)], "log")
+    records = lambda html: html.split("All records (", 1)[1].count("/sightings/")
+    page = client.get(f"/player/{sid}").text
+    assert "All records (55)" in page and "showing latest 50" in page and records(page) == 50
+    assert f'href="/player/{sid}?records=all#records"' in page
+    page = client.get(f"/player/{sid}?records=all&names=all").text
+    assert records(page) == 55 and "Show the latest 50 only" in page and "Alias00" in page
+    assert f'href="/player/{sid}?names=all#records"' in page and f'href="/player/{sid}?records=all#names"' in page
+
+
+def test_same_discord_links_verified_accounts(client):
+    """Two verified Steam IDs with the same Discord user ID are linked; a claimed ID or a typed username isn't enough."""
+    from fragdex import worker
+    from fragdex.importers.common import Sighting
+    main_id, alt, unverified, other, typed1, typed2 = (f"7656119800000077{i}" for i in range(6))
+    with db.get_db() as conn:
+        with db.transaction(conn):
+            db.add_sightings(conn, [Sighting(steam_id=s, name=f"Disc{i}") for i, s in enumerate((main_id, alt, other, typed1, typed2))], "demo")
+            db.add_sightings(conn, [Sighting(steam_id=unverified, name="Claimed")], "manual")
+            db.refresh_players(conn, [main_id, alt, unverified, other, typed1, typed2])
+        for s, did in ((main_id, "80351110224677001"), (alt, "80351110224677001"), (unverified, "80351110224677001"),
+                       (other, "80351110224677002"), (typed1, "sameuser"), (typed2, "sameuser")):
+            db.set_discord(conn, s, did)
+        db.recompute_alts(conn)
+        counts = dict(conn.execute(f"SELECT steam_id, alt_count FROM players WHERE steam_id IN ({','.join('?' * 6)})",
+                                   (main_id, alt, unverified, other, typed1, typed2)).fetchall())
+        assert counts == {main_id: 1, alt: 1, unverified: 0, other: 0, typed1: 0, typed2: 0}
+        linked = db.linked_accounts(conn, main_id)
+        assert [(a["steam_id"], a["same_discord"], a["shared_ips"]) for a in linked] == [(alt, True, "")]
+        assert db.linked_accounts(conn, unverified) == []
+
+    assert login(client).status_code == 303
+    page = client.get(f"/player/{main_id}").text
+    assert "Linked accounts (1)" in page and ">Same Discord<" in page and f"/player/{alt}" in page
+    key, _ = _create_key(client, name="Linked by Discord", can_ips="1")
+    r = _api(client, key, f"/players/{main_id}/linked").json()
+    assert r["linked"][0]["steam_id"] == alt and r["linked"][0]["same_discord"] is True and r["linked"][0]["shared_ips"] == []
+
+    # changing a Discord ID by hand asks for the counts to be redone
+    worker._api_alts_dirty.clear()
+    client.post(f"/player/{alt}/discord", data={"csrf": csrf_of(page), "discord_id": "80351110224677009"})
+    assert worker._api_alts_dirty.is_set()

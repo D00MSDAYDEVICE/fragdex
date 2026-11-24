@@ -411,7 +411,11 @@ details.pop > summary.empty { opacity: .35; pointer-events: none; }
   background-size: 120px 100%; background-repeat: no-repeat; animation: bar-shine 1.4s linear infinite; }
 .progress[data-state="error"] .bar > span { background: var(--warn); }
 @keyframes bar-shine { from { background-position: -120px 0; } to { background-position: calc(100% + 120px) 0; } }
-@media (prefers-reduced-motion: reduce) { .progress .bar > span { transition: none; animation: none !important; } }
+.progress[data-indeterminate] .bar > span { width: 30%; transition: none; animation: bar-slide 1.2s ease-in-out infinite; }
+@keyframes bar-slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .progress .bar > span { transition: none; animation: none !important; }
+  .progress[data-indeterminate] .bar > span { width: 100%; opacity: .35; } }
+.panel-more { padding: 10px 14px; border-top: 1px solid var(--border); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px; margin: 0; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; font-family: var(--mono); font-size: 12.5px; }

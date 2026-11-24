@@ -48,21 +48,38 @@ def _refusal(r):
         return ""
 
 
-def fetch(url, key):
-    """Every link FragQ will give this key. Raises RuntimeError with a reason an admin can act on."""
+def _quiet(**_progress):
+    """The default progress callback: report(stage=..., done=..., total=...), with total None when unknown."""
+
+
+def fetch(url, key, report=_quiet):
+    """Every link FragQ will give this key. Raises RuntimeError with a reason an admin can act on.
+    Reports the bytes received, out of FragQ's Content-Length when it sends one."""
+    body = b""
     try:
-        with _client() as client:
-            r = client.get(url + PATH, headers={"Authorization": f"Bearer {key}"})
+        with _client() as client, client.stream("GET", url + PATH, headers={"Authorization": f"Bearer {key}"}) as r:
+            if r.status_code != 200:
+                r.read()
+            else:
+                size = r.headers.get("content-length", "")
+                total = int(size) if size.isdigit() else None
+                report(stage="download", done=0, total=total)
+                chunks = []
+                for chunk in r.iter_bytes():
+                    chunks.append(chunk)
+                    report(stage="download", done=r.num_bytes_downloaded, total=total)
+                body = b"".join(chunks)
     except httpx.HTTPError as e:
         raise RuntimeError(f"Couldn't reach FragQ at {url}: {type(e).__name__}") from None
     if r.status_code == 404:
         raise RuntimeError("FragQ has no links route at this address. Update FragQ to 1.1.0 or later, and use the "
                            "FragQ address from its Fragdex panel, not the Connector API address.")
     if r.status_code != 200:
-        hint = {401: "Check the connector key.", 403: "The connector needs Read linked accounts."}.get(r.status_code, "")
-        raise RuntimeError(" ".join(x for x in (f"FragQ returned HTTP {r.status_code}.", _refusal(r), hint) if x))
+        # a guess at the cause, only when FragQ didn't say: a 403 is also a refused address
+        reason = _refusal(r) or {401: "Check the connector key.", 403: "The connector needs Read linked accounts."}.get(r.status_code, "")
+        raise RuntimeError(" ".join(x for x in (f"FragQ returned HTTP {r.status_code}.", reason) if x))
     try:
-        links = r.json()["links"]
+        links = json.loads(body)["links"]
     except (ValueError, KeyError, TypeError):
         links = None
     if not isinstance(links, list):
@@ -211,12 +228,14 @@ def _settle(conn, sids):
                                AND l.verified = 1 AND c.trusted = 1)""", (db.now(), *chunk))
 
 
-def apply(conn, connection_id, links):
+def apply(conn, connection_id, links, report=_quiet):
     """Store one server's list and settle the players in it. Safe to repeat: players only change when the outcome
     does. Rows for Steam IDs missing from the list stay. Returns the counts for the Settings page."""
     stats, new, sids = _new_stats(), set(), {}
     with db.transaction(conn):
-        for raw in links:
+        for i, raw in enumerate(links):
+            if i % 200 == 0:
+                report(stage="save", done=i, total=len(links))
             link = _clean(raw)
             if link is None:
                 stats["bad"] += 1
@@ -231,9 +250,16 @@ def apply(conn, connection_id, links):
                                 persona=CASE WHEN excluded.persona != '' THEN excluded.persona ELSE persona END,
                                 updated_at=excluded.updated_at""",
                          (connection_id, sid, did, name, persona, proven, db.now()))
-        for sid in sids:
+        report(stage="save", done=len(links), total=len(links))
+        for i, sid in enumerate(sids):
+            if i % 200 == 0:
+                report(stage="match", done=i, total=len(sids))
             stats["conflicts"] += _resolve(conn, sid, stats, new)
-        db.refresh_players(conn, new)
+        report(stage="match", done=len(sids), total=len(sids))
+        if new:
+            report(stage="players", done=0, total=len(new))
+            db.refresh_players(conn, new)
+            report(stage="players", done=len(new), total=len(new))
     return stats
 
 
@@ -259,9 +285,9 @@ def conflicts(conn):
 
 # ---------------------------------------------------------------- syncing
 
-def sync(conn, c, url, key):
+def sync(conn, c, url, key, report=_quiet):
     """Read one connection. Raises RuntimeError if FragQ can't be read; what it said before stays."""
-    stats = apply(conn, c["id"], fetch(url, key))
+    stats = apply(conn, c["id"], fetch(url, key, report), report)
     stats["at"] = db.now()
     mark = db.key_mark(key)
     stats["filled_total"] = (c["filled_total"] if c["filled_key"] == mark else 0) + stats["filled"]
@@ -270,15 +296,18 @@ def sync(conn, c, url, key):
     return stats
 
 
-def sync_all(conn):
-    """Read every connection; one that fails doesn't affect the others. Returns what changed overall."""
+def sync_all(conn, report=_quiet):
+    """Read every connection; one that fails doesn't affect the others. Returns what changed overall.
+    `report` also gets the connection's name, its number and how many there are."""
     changed = dict(discord=False, players=False)
-    for c in connections(conn):
-        url, key = address(c)
-        if not url or not key:
-            continue
+    ready = [(c, *address(c)) for c in connections(conn)]
+    ready = [(c, url, key) for c, url, key in ready if url and key]
+    for number, (c, url, key) in enumerate(ready, 1):
+        def step(**progress):
+            report(connection=c["name"], number=number, count=len(ready), **progress)
+
         try:
-            stats = sync(conn, c, url, key)
+            stats = sync(conn, c, url, key, step)
         except Exception as e:  # noqa: BLE001 - recorded on the connection, and the next one still runs
             log.warning("FragQ sync of '%s' failed: %s", c["name"], e)
             conn.execute("UPDATE fragq_connections SET last_error=? WHERE id=?", (f"{db.now()}: {e}"[:300], c["id"]))

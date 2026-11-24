@@ -157,6 +157,72 @@
     if (sp.getAttribute("data-state") !== "nokey") spPoll();
   }
 
+  // Settings: live progress of the FragQ links sync, from what the worker has received and processed
+  var fq = document.querySelector("[data-fragq-progress]");
+  if (fq) {
+    var fqField = function (k) { return fq.querySelector('[data-fq="' + k + '"]'); };
+    var fqLabel = document.querySelector("[data-fq-label]");
+    var fqBar = fq.querySelector("[role=progressbar]");
+    var fqCount = function (n) { return Number(n).toLocaleString(); };
+    var fqBytes = function (n) {
+      if (n < 1024) return n + " B";
+      if (n < 1048576) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + " KB";
+      return (n / 1048576).toFixed(1) + " MB";
+    };
+    var fqTime = function (s) { return s < 90 ? s + " s" : Math.floor(s / 60) + " min " + (s % 60) + " s"; };
+    var fqStage = function (p) {
+      var of = fqCount(p.done) + " of " + fqCount(p.total);
+      if (p.stage === "download") {
+        if (!p.done) return "Waiting for FragQ to answer…";
+        return "Downloading · " + fqBytes(p.done) + (p.total ? " of " + fqBytes(p.total) + " · " + p.percent + "%" : " received");
+      }
+      if (p.stage === "save") return "Saving links · " + of;
+      if (p.stage === "match") return "Matching players · " + of;
+      if (p.stage === "players") return "Updating new players · " + of;
+      return "Connecting to FragQ…";
+    };
+    var fqWasRunning = fq.getAttribute("data-state") === "running";
+    var fqRender = function (p) {
+      if (!p.running) {
+        if (fqLabel) fqLabel.textContent = "Sync now";
+        if (fqWasRunning) {
+          fq.setAttribute("data-state", "idle");
+          fq.removeAttribute("data-indeterminate");
+          fqField("title").textContent = "Sync finished";
+          fqField("bar").style.width = "100%";
+          var status = fqField("status"), link = document.createElement("a");
+          link.href = "/admin/settings#fragq";
+          link.textContent = "Reload to see the results";
+          link.addEventListener("click", function () { window.location.reload(); });
+          status.textContent = "";
+          status.appendChild(link);
+        }
+        fqWasRunning = false;
+        return;
+      }
+      fqWasRunning = true;
+      fq.hidden = false;
+      fq.setAttribute("data-state", "running");
+      if (fqLabel) fqLabel.textContent = "Syncing…";
+      fqField("title").textContent = "Syncing " + (p.connection || "FragQ");
+      fqField("count").textContent = p.count > 1 ? "Connection " + p.number + " of " + p.count : "";
+      var known = p.percent !== null && p.done > 0;
+      fq.toggleAttribute("data-indeterminate", !known);
+      fqField("bar").style.width = known ? p.percent + "%" : "";
+      if (known) fqBar.setAttribute("aria-valuenow", p.percent); else fqBar.removeAttribute("aria-valuenow");
+      fqField("status").textContent = fqStage(p);
+      fqField("elapsed").textContent = fqTime(p.elapsed);
+    };
+    var fqPoll = function () {
+      fetch("/admin/settings/fragq.json", { credentials: "same-origin" }).then(function (r) { return r.json(); })
+        .then(function (p) {
+          fqRender(p);
+          setTimeout(fqPoll, p.running ? 1000 : 5000);
+        }).catch(function () { setTimeout(fqPoll, 10000); });
+    };
+    fqPoll();
+  }
+
   // Import page: refresh while jobs are queued/running
   var watch = document.querySelector("[data-import-active]");
   if (watch && parseInt(watch.getAttribute("data-import-active"), 10) > 0) {

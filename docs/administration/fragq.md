@@ -16,7 +16,18 @@ This is optional, and needs FragQ 1.1.0 or later.
 !!! warning "Use the FragQ address"
     The Connectors page shows two addresses. Enter the **FragQ address** from the **Fragdex** panel, such as `https://fragq.example.com`, and not the **Connector API address** at the top of the page, which is for game servers.
 
-Fragdex then checks every connection every 15 minutes (`FRAGQ_SYNC_MINUTES`), and **Sync now** does it straight away. A server that can't be reached shows its error on its own entry and doesn't hold up the others, and what it said before still counts. Each entry shows the result of its last sync and how many Discord IDs it has filled in since its key was added. A new key starts that count again.
+Fragdex then checks every connection every 15 minutes (`FRAGQ_SYNC_MINUTES`), and **Sync now** does it straight away. While a sync runs, a progress bar below the connections shows what it is doing, from what has actually been received and processed:
+
+| Stage | Shows |
+|---|---|
+| Downloading | The data received from FragQ so far, and the percentage when FragQ says how much is coming. Otherwise the bar moves without a percentage. |
+| Saving links | The links stored so far, out of all the links FragQ sent. |
+| Matching players | The players checked against the links so far. |
+| Updating new players | Players that only FragQ knew about, being added. |
+
+With several connections, it also says which one is being read, such as *Connection 2 of 3*. When the sync ends, reload the page to see each connection's result.
+
+A server that can't be reached shows its error on its own entry and doesn't hold up the others, and what it said before still counts. Each entry shows the result of its last sync and how many Discord IDs it has filled in since its key was added. A new key starts that count again.
 
 Instead of the Settings page, you can set `FRAGQ_URL` and `FRAGQ_KEY` in `.env`. That adds one trusted connection, whose name and trust you can change on the Settings page. To remove it, remove those settings.
 

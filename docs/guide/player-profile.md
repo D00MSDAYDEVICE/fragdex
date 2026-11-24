@@ -12,6 +12,8 @@ The latest name in its Quake colours, the avatar and current Steam name (with a 
 
 Every name the player has used, with the first and last date it was seen, how many times, and which sources it came from. Names are shown in their Quake colours; different colourings of the same name are listed separately.
 
+A player with more than 40 names shows the latest 40 first, so the panels below stay within reach. **Show all … names** lists the rest, and the heading always gives the total.
+
 ## IP addresses
 
 Every IP address with first and last seen dates, how often it was seen, its sources and **Other accounts**: how many other Steam IDs were seen on the same IP. Click the count to search for everyone on that IP.
@@ -22,11 +24,11 @@ The **Hide IPs** toggle masks the addresses on screen, as on the Players page.
 
 ## Linked accounts
 
-Other Steam IDs seen on the same IP address as this player, with how many IPs they share and when they were last seen. See [Linked accounts](linked-accounts.md).
+Other Steam IDs seen on the same IP address as this player, or verified with the same Discord ID, with what links them and when they were last seen. See [Linked accounts](linked-accounts.md).
 
 ## All records
 
-The raw records behind everything above: date, name, IP, source and the file and server each one came from. The latest records are shown; the heading gives the total.
+The raw records behind everything above: date, name, IP, source and the file and server each one came from. The latest 50 are shown, and the heading gives the total. **Show all … records** lists every one.
 
 Editors can delete a single record with the bin icon, for example a wrong entry from a spreadsheet. The player's summary, names, IPs and linked accounts are recalculated straight away.
 

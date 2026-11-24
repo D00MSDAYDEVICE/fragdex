@@ -23,7 +23,7 @@ _started = False
 # steam_state: idle | running | error | nokey;  steam_batch_secs: smoothed time per 100-player batch
 status = {"watch_last_scan": None, "watch_error": None, "steam_last_run": None, "steam_state": "idle",
           "steam_batch_secs": None, "steam_next_run": None, "discord_state": "idle", "discord_last_run": None,
-          "fragq_state": "idle"}
+          "fragq_state": "idle", "fragq_started": None, "fragq_progress": None}
 
 
 def wake():
@@ -49,6 +49,11 @@ _api_alts_dirty = threading.Event()
 
 
 def api_records_added():
+    _api_alts_dirty.set()
+
+
+def links_changed():
+    """Discord IDs changed, so linked accounts may have too. Recounted with the API's records, within a minute."""
     _api_alts_dirty.set()
 
 
@@ -401,20 +406,26 @@ def discord_refresher():
         _discord_wake.clear()
 
 
+def _fragq_report(**progress):
+    """What the sync is doing right now, for the Settings page: one dict, replaced whole."""
+    status["fragq_progress"] = progress
+
+
 def fragq_sync():
     while True:
         try:
             with db.get_db() as conn:
-                status["fragq_state"] = "running"
-                changed = fragq.sync_all(conn)
-            status["fragq_state"] = "idle"
+                status.update(fragq_state="running", fragq_started=time.time(), fragq_progress=None)
+                changed = fragq.sync_all(conn, _fragq_report)
             if changed["discord"]:
                 wake_discord()
+                links_changed()
             if changed["players"]:
                 wake_steam()
         except Exception as e:  # noqa: BLE001 - keep the thread alive
             log.warning("FragQ sync failed: %s", e)
-            status["fragq_state"] = "idle"
+        finally:
+            status.update(fragq_state="idle", fragq_progress=None)
         _fragq_wake.wait(config.FRAGQ_SYNC_MINUTES * 60)
         _fragq_wake.clear()
 

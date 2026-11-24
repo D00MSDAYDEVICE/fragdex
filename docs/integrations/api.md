@@ -106,7 +106,7 @@ Search and filter players, like the Players page. Parameters, all optional:
 
 ### `GET /players/{steam_id}`
 
-One player in full: the fields above, plus every name (`names`, with record counts, first and last seen and sources), the number of `records`, and `linked` accounts with their tags and bans. With **See IP addresses**, also every IP (`ips`, with how many other accounts used it) and each linked account's `shared_ips`. The Steam ID may be in any format Fragdex accepts (SteamID64, `STEAM_0:X:Y`, `[U:1:Z]`).
+One player in full: the fields above, plus every name (`names`, with record counts, first and last seen and sources), the number of `records`, and `linked` accounts with their tags, bans and `same_discord` (`true` when both Steam IDs are verified and have the same Discord ID). With **See IP addresses**, also every IP (`ips`, with how many other accounts used it) and each linked account's `shared_ips`, which is empty for a link by Discord ID only. The Steam ID may be in any format Fragdex accepts (SteamID64, `STEAM_0:X:Y`, `[U:1:Z]`).
 
 ### `GET /players/{steam_id}/linked`
 

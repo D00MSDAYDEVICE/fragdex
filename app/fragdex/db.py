@@ -385,13 +385,25 @@ def shared_ips_clause():
     return f"SELECT ip FROM sightings WHERE ip != '' GROUP BY ip HAVING {having}"
 
 
+# a Discord user ID; a username typed in by hand isn't unique enough to link accounts by
+DISCORD_ID_SQL = "discord_id != '' AND discord_id NOT GLOB '*[^0-9]*'"
+
+
+def same_discord_groups(conn):
+    """Verified Steam IDs that share a Discord ID: one person's accounts, by their own Discord account."""
+    groups = defaultdict(set)
+    for row in conn.execute(f"SELECT steam_id, discord_id FROM players WHERE steam_verified = 1 AND {DISCORD_ID_SQL}"):
+        groups[row["discord_id"]].add(row["steam_id"])
+    return [ids for ids in groups.values() if len(ids) > 1]
+
+
 def recompute_alts(conn):
     by_ip = defaultdict(set)
     for row in conn.execute(
             f"SELECT DISTINCT ip, steam_id FROM sightings WHERE ip IN ({shared_ips_clause()})"):
         by_ip[row["ip"]].add(row["steam_id"])
     alts = defaultdict(set)
-    for ids in by_ip.values():
+    for ids in [*by_ip.values(), *same_discord_groups(conn)]:
         for sid in ids:
             alts[sid] |= ids - {sid}
     current = {r["steam_id"]: r["alt_count"] for r in conn.execute("SELECT steam_id, alt_count FROM players")}
@@ -542,12 +554,20 @@ def attach_details(conn, players):
 
 
 def linked_accounts(conn, steam_id):
-    rows = conn.execute(f"""
+    """Other Steam IDs seen on the same IP address, or verified with the same Discord ID (`same_discord`)."""
+    rows = {r["steam_id"]: dict(r, same_discord=False) for r in conn.execute(f"""
         SELECT s2.steam_id, group_concat(DISTINCT s2.ip) AS shared_ips, p.last_name, p.last_seen,
                p.vac_bans, p.game_bans
         FROM sightings s1
         JOIN sightings s2 ON s2.ip = s1.ip AND s2.steam_id != s1.steam_id
         JOIN players p ON p.steam_id = s2.steam_id
         WHERE s1.steam_id = ? AND s1.ip != '' AND s1.ip IN ({shared_ips_clause()})
-        GROUP BY s2.steam_id ORDER BY p.last_seen DESC""", (steam_id,)).fetchall()
-    return [dict(r) for r in rows]
+        GROUP BY s2.steam_id""", (steam_id,))}
+    me = conn.execute(f"SELECT discord_id FROM players WHERE steam_id = ? AND steam_verified = 1 AND {DISCORD_ID_SQL}",
+                      (steam_id,)).fetchone()
+    if me:
+        for r in conn.execute("""SELECT steam_id, '' AS shared_ips, last_name, last_seen, vac_bans, game_bans FROM players
+                                 WHERE discord_id = ? AND steam_verified = 1 AND steam_id != ?""",
+                              (me["discord_id"], steam_id)):
+            rows.setdefault(r["steam_id"], dict(r))["same_discord"] = True
+    return sorted(rows.values(), key=lambda r: r["last_seen"] or "", reverse=True)

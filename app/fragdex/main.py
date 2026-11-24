@@ -395,10 +395,16 @@ def export_fdx(request: Request):
 
 # ---------------------------------------------------------------- player detail
 
+NAMES_SHOWN = 40     # a player's latest names on their page, until "Show all"
+RECORDS_SHOWN = 50   # and their latest records
+
+
 @app.get("/player/{sid}", response_class=HTMLResponse)
 def player(request: Request, sid: str):
     user = require(request)
     valid_sid(sid)
+    all_names = request.query_params.get("names") == "all"
+    all_records = request.query_params.get("records") == "all"
     with db.get_db() as conn:
         p = conn.execute("SELECT * FROM players WHERE steam_id=?", (sid,)).fetchone()
         if not p:
@@ -407,7 +413,10 @@ def player(request: Request, sid: str):
         names = [dict(r) for r in conn.execute("""
             SELECT name, COUNT(*) n, MIN(NULLIF(seen_at,'')) first, MAX(NULLIF(seen_at,'')) last,
                    group_concat(DISTINCT source) sources
-            FROM sightings WHERE steam_id=? AND name != '' GROUP BY name ORDER BY last DESC, MAX(id) DESC""", (sid,))]
+            FROM sightings WHERE steam_id=? AND name != '' GROUP BY name ORDER BY last DESC, MAX(id) DESC"""
+            + ("" if all_names else f" LIMIT {NAMES_SHOWN}"), (sid,))]
+        name_total = conn.execute("SELECT COUNT(DISTINCT name) FROM sightings WHERE steam_id=? AND name != ''",
+                                  (sid,)).fetchone()[0]
         ips = [dict(r) for r in conn.execute("""
             SELECT s.ip, COUNT(*) n, MIN(NULLIF(s.seen_at,'')) first, MAX(NULLIF(s.seen_at,'')) last,
                    group_concat(DISTINCT s.source) sources,
@@ -416,14 +425,17 @@ def player(request: Request, sid: str):
             FROM sightings s WHERE s.steam_id=? AND s.ip != '' GROUP BY s.ip
             ORDER BY last DESC, MAX(s.id) DESC""", (sid,))]
         sightings = [dict(r) for r in conn.execute("""
-            SELECT * FROM sightings WHERE steam_id=? ORDER BY seen_at DESC, id DESC LIMIT 500""", (sid,))]
+            SELECT * FROM sightings WHERE steam_id=? ORDER BY seen_at DESC, id DESC"""
+            + ("" if all_records else f" LIMIT {RECORDS_SHOWN}"), (sid,))]
         sighting_total = conn.execute("SELECT COUNT(*) FROM sightings WHERE steam_id=?", (sid,)).fetchone()[0]
         tags = [dict(r) for r in conn.execute("""
             SELECT t.*, EXISTS(SELECT 1 FROM player_tags pt WHERE pt.tag_id=t.id AND pt.steam_id=?) AS on_player
             FROM tags t ORDER BY name""", (sid,))]
         linked = db.linked_accounts(conn, sid)
         steam_enabled = bool(db.steam_api_key(conn))
-    return render(request, "player.html", user, nav="players", p=p, names=names, ips=ips, sightings=sightings,
+    return render(request, "player.html", user, nav="players", p=p, names=names, name_total=name_total,
+                  names_shown=NAMES_SHOWN, records_shown=RECORDS_SHOWN, all_names=all_names, all_records=all_records,
+                  ips=ips, sightings=sightings,
                   sighting_total=sighting_total, tags=tags, linked=linked, steam_enabled=steam_enabled,
                   alt_limit=config.ALT_IP_MAX_ACCOUNTS)
 
@@ -453,6 +465,7 @@ async def player_discord(request: Request, sid: str):
     with db.get_db() as conn:
         db.set_discord(conn, sid, discord)
     worker.wake_discord()
+    worker.links_changed()
     flash(request, "Discord ID saved." if discord else "Discord ID removed.")
     return back(f"/player/{sid}")
 
@@ -1096,7 +1109,7 @@ async def fragq_sync_now(request: Request):
     require(request, "admin")
     await checked_form(request)
     worker.wake_fragq()
-    flash(request, "Checking FragQ now. Reload this page in a moment to see the result.")
+    flash(request, "Checking FragQ now. The progress shows below the connections.")
     return back("/admin/settings#fragq")
 
 
@@ -1113,6 +1126,7 @@ async def fragq_update(request: Request, connection_id: int):
         fragq.update_connection(conn, c, name, url, key, trusted)
     worker.wake_fragq()
     worker.wake_discord()
+    worker.links_changed()
     flash(request, f"Saved FragQ connection '{name}'.")
     return back("/admin/settings#fragq")
 
@@ -1146,6 +1160,7 @@ async def fragq_delete(request: Request, connection_id: int):
             return back("/admin/settings#fragq")
         fragq.delete_connection(conn, c)
     worker.wake_discord()
+    worker.links_changed()
     flash(request, f"Removed FragQ connection '{c['name']}'. Players keep the Discord IDs they have.")
     return back("/admin/settings#fragq")
 
@@ -1241,6 +1256,25 @@ def _fragq_status(conn):
     return dict(connections=items, verified=counts.get("verified", 0), claimed=counts.get("claimed", 0),
                 conflicts=conflicts[:fragq.MAX_CONFLICTS], conflict_count=len(conflicts),
                 running=worker.status["fragq_state"] == "running")
+
+
+def _fragq_progress():
+    """What the FragQ sync is doing, as the worker last reported it: bytes received and rows processed."""
+    if worker.status["fragq_state"] != "running":
+        return {"running": False}
+    p = worker.status["fragq_progress"] or {}      # replaced whole by the worker, so read once
+    started = worker.status["fragq_started"]
+    done, total = p.get("done", 0), p.get("total")
+    return {"running": True, "connection": p.get("connection", ""), "number": p.get("number", 0),
+            "count": p.get("count", 0), "stage": p.get("stage", "start"), "done": done, "total": total,
+            "percent": min(100, round(done * 100 / total)) if total else None,
+            "elapsed": round(time.time() - started) if started else 0}
+
+
+@app.get("/admin/settings/fragq.json")
+def settings_fragq_progress(request: Request):
+    require(request, "admin")
+    return JSONResponse(_fragq_progress())
 
 
 @app.get("/admin/settings/steam.json")

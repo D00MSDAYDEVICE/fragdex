@@ -124,9 +124,10 @@ def _linked(conn, sid, key):
     out = []
     for r in rows:
         d = {"steam_id": r["steam_id"], "name": clean_name(r["last_name"]), "last_seen": r["last_seen"] or None,
-             "vac_bans": r["vac_bans"], "game_bans": r["game_bans"], "tags": tags[r["steam_id"]]}
+             "vac_bans": r["vac_bans"], "game_bans": r["game_bans"], "tags": tags[r["steam_id"]],
+             "same_discord": r["same_discord"]}
         if key["can_ips"]:
-            d["shared_ips"] = sorted((r["shared_ips"] or "").split(","))
+            d["shared_ips"] = sorted(ip for ip in (r["shared_ips"] or "").split(",") if ip)
         out.append(d)
     return out
 

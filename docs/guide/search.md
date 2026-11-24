@@ -31,7 +31,7 @@ The row under the search box narrows the list further. Drop-downs and check boxe
 | **Has IP** | players with at least one known IP address. Demos contain no IPs, so this hides demo-only players. |
 | **Has Discord** | players with a Discord ID or username. |
 | **Verified Steam ID** | players whose Steam ID came from a demo, a log or a game server. See [Verified Steam IDs](../administration/fragq.md#verified-steam-ids). |
-| **Has linked accounts** | players who share an IP with another Steam ID. See [Linked accounts](linked-accounts.md). |
+| **Has linked accounts** | players who share an IP, or a Discord ID between verified Steam IDs, with another Steam ID. See [Linked accounts](linked-accounts.md). |
 | **Last seen** from / to | players last seen within the date range. |
 | **50 / page** | 25, 50, 100 or 250 players per page. |
 

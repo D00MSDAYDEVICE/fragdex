@@ -185,10 +185,24 @@
       {% if fq.connections %}
       <form method="post" action="/admin/fragq/sync">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button class="btn btn-sm" type="submit"><svg class="i"><use href="#i-refresh"/></svg>{{ 'Syncing…' if fq.running else 'Sync now' }}</button>
+        <button class="btn btn-sm" type="submit"><svg class="i"><use href="#i-refresh"/></svg><span data-fq-label>{{ 'Syncing…' if fq.running else 'Sync now' }}</span></button>
       </form>
       {% endif %}
     </div>
+
+    {% if fq.connections %}
+    <div class="progress" data-fragq-progress data-state="{{ 'running' if fq.running else 'idle' }}"{{ '' if fq.running else ' hidden' }}>
+      <div class="progress-head">
+        <span data-fq="title">Syncing</span>
+        <span class="progress-count" data-fq="count"></span>
+      </div>
+      <div class="bar" role="progressbar" aria-label="FragQ sync progress" aria-valuemin="0" aria-valuemax="100"><span data-fq="bar" style="width: 0%"></span></div>
+      <div class="progress-foot">
+        <span data-fq="status">Connecting to FragQ…</span>
+        <span data-fq="elapsed"></span>
+      </div>
+    </div>
+    {% endif %}
 
     {% if fq.conflicts %}
     <details class="fragq-conflicts">

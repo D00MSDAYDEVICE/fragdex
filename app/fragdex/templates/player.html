@@ -35,8 +35,8 @@
 
 <div class="player-grid">
   <div class="stack">
-    <section class="panel">
-      <div class="panel-head"><h2>Names ({{ names|length }})</h2></div>
+    <section class="panel" id="names">
+      <div class="panel-head"><h2>Names ({{ name_total }})</h2>{% if name_total > names|length %}<span class="muted" style="font-size:12px">showing latest {{ names|length }}</span>{% endif %}</div>
       <div class="scroll-x">
       <table class="dtable">
         <thead><tr><th>Name</th><th>First seen</th><th>Last seen</th><th class="num">Seen</th><th>Sources</th></tr></thead>
@@ -53,6 +53,11 @@
         </tbody>
       </table>
       </div>
+      {% if name_total > names|length %}
+      <div class="panel-more"><a class="btn btn-ghost btn-sm" href="/player/{{ p.steam_id }}?names=all{{ '&records=all' if all_records }}#names">Show all {{ "{:,}".format(name_total) }} names</a></div>
+      {% elif name_total > names_shown %}
+      <div class="panel-more"><a class="btn btn-ghost btn-sm" href="/player/{{ p.steam_id }}{{ '?records=all' if all_records }}#names">Show the latest {{ names_shown }} only</a></div>
+      {% endif %}
     </section>
 
     <section class="panel">
@@ -77,25 +82,25 @@
     </section>
 
     <section class="panel" id="linked">
-      <div class="panel-head"><h2>Linked accounts ({{ linked|length }})</h2><span class="muted" style="font-size:12px">Other Steam IDs seen on the same IP address</span></div>
+      <div class="panel-head"><h2>Linked accounts ({{ linked|length }})</h2><span class="muted" style="font-size:12px">Other Steam IDs seen on the same IP address, or verified with the same Discord ID</span></div>
       <div class="scroll-x">
       <table class="dtable">
-        <thead><tr><th>Player</th><th>Steam ID</th><th>Shared IPs</th><th>Last seen</th></tr></thead>
+        <thead><tr><th>Player</th><th>Steam ID</th><th>Linked by</th><th>Last seen</th></tr></thead>
         <tbody>
         {% for a in linked %}
           <tr>
             <td><a href="/player/{{ a.steam_id }}">{{ a.last_name|qlname }}</a>{% if a.vac_bans or a.game_bans %} <span class="badge badge-ban">BAN</span>{% endif %}</td>
             <td><span class="sid"><a class="steam-link" href="{{ steam_url(a.steam_id) }}" target="_blank" rel="noopener noreferrer" title="Open Steam profile"><svg class="i"><use href="#i-steam"/></svg></a><code>{{ a.steam_id }}</code></span></td>
-            <td class="ip">{{ a.shared_ips.replace(',', ', ') }}</td>
+            <td>{% if a.same_discord %}<span class="badge" title="Both Steam IDs are verified and have the same Discord ID">Same Discord</span> {% endif %}{% if a.shared_ips %}<span class="ip">{{ a.shared_ips.replace(',', ', ') }}</span>{% endif %}</td>
             <td class="nowrap muted">{{ a.last_seen[:10] if a.last_seen else '—' }}</td>
           </tr>
-        {% else %}<tr><td colspan="4" class="muted">No other accounts share an IP with this player.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="4" class="muted">No other accounts share an IP address or a Discord ID with this player.</td></tr>{% endfor %}
         </tbody>
       </table>
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="records">
       <div class="panel-head"><h2>All records ({{ sighting_total }})</h2>{% if sighting_total > sightings|length %}<span class="muted" style="font-size:12px">showing latest {{ sightings|length }}</span>{% endif %}</div>
       <div class="scroll-x">
       <table class="dtable">
@@ -121,6 +126,11 @@
         </tbody>
       </table>
       </div>
+      {% if sighting_total > sightings|length %}
+      <div class="panel-more"><a class="btn btn-ghost btn-sm" href="/player/{{ p.steam_id }}?records=all{{ '&names=all' if all_names }}#records">Show all {{ "{:,}".format(sighting_total) }} records</a></div>
+      {% elif sighting_total > records_shown %}
+      <div class="panel-more"><a class="btn btn-ghost btn-sm" href="/player/{{ p.steam_id }}{{ '?names=all' if all_names }}#records">Show the latest {{ records_shown }} only</a></div>
+      {% endif %}
     </section>
   </div>
 

@@ -4,6 +4,21 @@ All notable changes to Fragdex. Versions follow [Semantic Versioning](https://se
 
 To update, see [Updating](https://d00msdaydevice.github.io/fragdex/administration/updating/). Existing databases are upgraded automatically when the new version starts.
 
+## 1.4.2 (2026-11-24)
+
+### Added
+
+- A progress bar for the FragQ links sync on the Settings page, showing the data received from each FragQ server and the links and players processed, instead of only "Syncing…".
+- **Linked accounts by Discord ID.** Two Steam IDs are linked when both are verified and have the same Discord user ID, as well as by shared IP addresses. The player profile says **Same Discord** under **Linked by**, and the API's linked accounts have a `same_discord` field.
+
+### Changed
+
+- A player's profile shows their latest 40 names and latest 50 records, each with **Show all** for the rest, so the panels below stay within reach. Records used to stop at 500 with no way to see the rest.
+
+### Fixed
+
+- When FragQ refuses a links request and says why, such as a connector key used from an address it doesn't allow, only FragQ's reason is shown. Fragdex no longer adds "The connector needs Read linked accounts", which didn't apply.
+
 ## 1.4.1 (2026-11-12)
 
 ### Fixed
