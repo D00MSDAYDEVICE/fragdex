@@ -86,6 +86,7 @@ Search and filter players, like the Players page. Parameters, all optional:
 | `source` | `demo`, `log`, `xlsx`, `csv`, `manual`, `api` or `fragq`. |
 | `bans` | `vac`, `any` or `clean`. |
 | `has_ip`, `has_discord`, `verified`, `linked` | `1` for only players with an IP address / with a Discord ID / with a verified Steam ID / with linked accounts. |
+| `vpn` | `1` for only players with any address that is a VPN, Tor exit or proxy. See [VPN detection](../administration/vpn.md). |
 | `seen_from`, `seen_to` | Last-seen date range, `YYYY-MM-DD`. |
 | `sort`, `dir` | `last_seen` (default), `first_seen`, `name`, `steam_id`, `discord`, `aliases`, `ips` or `alts`; `desc` (default) or `asc`. |
 | `limit`, `offset` | Page size (1–500, default 50) and position. |
@@ -96,6 +97,7 @@ Search and filter players, like the Players page. Parameters, all optional:
    "first_seen": "2026-09-05 10:55:58", "last_seen": "2026-10-29 19:27:35", "name_count": 2,
    "linked_accounts": 1, "discord_id": "80351110224678912", "discord_name": "railgod", "discord_status": "verified",
    "steam_verified": true, "tags": ["cheater"],
+   "vpn": {"kind": "vpn", "label": "VPN", "provider": "Mullvad", "source": "Mullvad servers"}, "uses_vpn": true,
    "steam": {"persona": "Railgun", "avatar": "https://avatars.steamstatic.com/…", "vac_bans": 1, "game_bans": 0,
              "community_banned": false, "days_since_last_ban": 120, "checked_at": "2026-10-30 08:00:00"},
    "profile_url": "https://steamcommunity.com/profiles/76561197960287930",
@@ -106,7 +108,7 @@ Search and filter players, like the Players page. Parameters, all optional:
 
 ### `GET /players/{steam_id}`
 
-One player in full: the fields above, plus every name (`names`, with record counts, first and last seen and sources), the number of `records`, and `linked` accounts with their tags, bans and `same_discord` (`true` when both Steam IDs are verified and have the same Discord ID). With **See IP addresses**, also every IP (`ips`, with how many other accounts used it) and each linked account's `shared_ips`, which is empty for a link by Discord ID only. The Steam ID may be in any format Fragdex accepts (SteamID64, `STEAM_0:X:Y`, `[U:1:Z]`).
+One player in full: the fields above, plus every name (`names`, with record counts, first and last seen and sources), the number of `records`, and `linked` accounts with their tags, bans and `same_discord` (`true` when both Steam IDs are verified and have the same Discord ID). With **See IP addresses**, also every IP (`ips`, with how many other accounts used it and its `vpn` label) and each linked account's `shared_ips`, which is empty for a link by Discord ID only. The Steam ID may be in any format Fragdex accepts (SteamID64, `STEAM_0:X:Y`, `[U:1:Z]`).
 
 ### `GET /players/{steam_id}/linked`
 
@@ -147,7 +149,7 @@ The players with a Discord ID: a user ID, a mention (`<@80351110224678912>`) or 
 
 `query` is what was searched for. The top-level `discord_id` is that same value for a numeric ID and `null` for a username. Each player has their own `discord_id` and `discord_name`. A player's `discord_id` can hold a username instead of a number if that is what was entered for them, and `discord_name` is `null` until a username has been looked up.
 
-`steam_verified` is `true` when the Steam ID came from a demo, a log or a game server. `discord_status` is `verified` or `claimed` for a [link from FragQ](../administration/fragq.md#claimed-and-verified), otherwise `null`.
+`steam_verified` is `true` when the Steam ID came from a demo, a log or a game server. `vpn` is the label of the player's latest IP from [VPN detection](../administration/vpn.md): `kind` is `vpn`, `tor`, `proxy` or `host`, `provider` is the VPN or hosting company when known, and `source` is where the label came from. It is `null` when nothing is known or VPN detection is off. `uses_vpn` is `true` when any of the player's addresses is a VPN, Tor exit or proxy. Neither needs **See IP addresses**. `discord_status` is `verified` or `claimed` for a [link from FragQ](../administration/fragq.md#claimed-and-verified), otherwise `null`.
 
 ### `POST /logs`
 

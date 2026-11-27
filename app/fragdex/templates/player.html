@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ p.last_name|clean or p.steam_id }}{% endblock %}
 {% block content %}
+{% from "_vpn.html" import vpn_label %}
 <a class="btn btn-ghost btn-sm" href="/" style="margin-bottom:10px"><svg class="i"><use href="#i-arrow-left"/></svg>All players</a>
 
 <section class="panel player-hero">
@@ -64,7 +65,7 @@
       <div class="panel-head"><h2>IP addresses ({{ ips|length }})</h2><span class="muted" style="font-size:12px">Hide IPs{% include "_ip_toggle.html" %}</span></div>
       <div class="scroll-x">
       <table class="dtable">
-        <thead><tr><th>IP</th><th>First seen</th><th>Last seen</th><th class="num">Seen</th><th>Other accounts</th><th>Sources</th></tr></thead>
+        <thead><tr><th>IP</th><th>First seen</th><th>Last seen</th><th class="num">Seen</th><th>Other accounts</th><th>Sources</th>{% if vpn_on %}<th>VPN</th>{% endif %}</tr></thead>
         <tbody>
         {% for x in ips %}
           <tr>
@@ -72,10 +73,12 @@
             <td class="nowrap muted">{{ x.first[:10] if x.first else '—' }}</td>
             <td class="nowrap muted">{{ x.last[:10] if x.last else '—' }}</td>
             <td class="num">{{ x.n }}</td>
-            <td>{% if x.others %}<a href="/?q={{ x.ip|urlencode }}" class="{{ 'faint' if alt_limit and x.others >= alt_limit }}" title="{% if alt_limit and x.others >= alt_limit %}Shared by many accounts - likely a VPN or shared connection, ignored for linking{% else %}Show everyone on this IP{% endif %}">{{ x.others }} other{{ 's' if x.others > 1 }}</a>{% else %}<span class="faint">—</span>{% endif %}</td>
+            {% set unlinked = vpn_unlinked and x.vpn and x.vpn.kind != 'host' %}
+            <td>{% if x.others %}<a href="/?q={{ x.ip|urlencode }}" class="{{ 'faint' if unlinked or (alt_limit and x.others >= alt_limit) }}" title="{% if unlinked %}A {{ x.vpn.label }} address, ignored for linking{% elif alt_limit and x.others >= alt_limit %}Shared by many accounts - likely a VPN or shared connection, ignored for linking{% else %}Show everyone on this IP{% endif %}">{{ x.others }} other{{ 's' if x.others > 1 }}</a>{% else %}<span class="faint">—</span>{% endif %}</td>
             <td>{% for s in (x.sources or '').split(',') if s %}<span class="src src-{{ s }}">{{ s }}</span> {% endfor %}</td>
+            {% if vpn_on %}<td>{% if x.vpn %}{{ vpn_label(x.vpn) }}{% else %}<span class="faint">—</span>{% endif %}</td>{% endif %}
           </tr>
-        {% else %}<tr><td colspan="6" class="muted">No IP addresses recorded.</td></tr>{% endfor %}
+        {% else %}<tr><td colspan="{{ 7 if vpn_on else 6 }}" class="muted">No IP addresses recorded.</td></tr>{% endfor %}
         </tbody>
       </table>
       </div>

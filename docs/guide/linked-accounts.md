@@ -8,6 +8,7 @@ Fragdex links Steam IDs that have been seen on the **same IP address**, or that 
 2. An IP seen with **two or more** Steam IDs links all of them to each other.
 3. Local addresses (`127.0.0.1`, `::1`) are never recorded, so they never link anyone. If your database has some from before this rule, run [Database cleanup](../importing/overview.md#database-cleanup).
 4. An IP seen with **more** Steam IDs than `ALT_IP_MAX_ACCOUNTS` (10 by default) is ignored. Such addresses are almost always VPN exit nodes, LAN centres, universities or mobile carriers' shared NAT, and linking everyone on them would be noise.
+5. With [VPN detection](../administration/vpn.md) on, you can also have VPN, Tor and proxy addresses ignored, however few accounts share them.
 
 ### By Discord ID
 

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, apikeys, db, worker
+from . import __version__, apikeys, db, vpn, worker
 from .importers.common import (Sighting, clean_name, normalize_discord_id, normalize_ip, normalize_name,
                                normalize_steam_id, parse_date)
 from .importers.logs import parse_connect_line
@@ -100,12 +100,18 @@ def _summary(p, key, tags=None):
          "discord_name": p["discord_name"] or None, "discord_status": p["discord_status"] or None,
          "steam_verified": bool(p["steam_verified"]),
          "tags": tags if tags is not None else [], "steam": _steam(p),
+         "vpn": _vpn(p.get("vpn")), "uses_vpn": bool(p.get("vpn_other") or (p.get("vpn") and p["vpn"]["kind"] in vpn.ANON)),
          "profile_url": f"https://steamcommunity.com/profiles/{p['steam_id']}"}
     if key["can_ips"]:
         d.update(last_ip=p["last_ip"] or None, ip_count=p["ip_count"])
     if key["can_notes"]:
         d["notes"] = p["notes"]
     return d
+
+
+def _vpn(label):
+    """The label of an address: {"kind", "label", "provider", "source"}, or None."""
+    return {k: label[k] for k in ("kind", "label", "provider", "source")} if label else None
 
 
 def _tags(conn, sids):
@@ -161,7 +167,7 @@ def players(request: Request, key=Depends(api_key)):
          "sort": qp.get("sort", "last_seen"), "dir": qp.get("dir", "desc"),
          "has_ip": qp.get("has_ip") in ("1", "true"), "has_discord": qp.get("has_discord") in ("1", "true"),
          "verified": qp.get("verified") in ("1", "true"),
-         "has_alts": qp.get("linked") in ("1", "true")}
+         "has_alts": qp.get("linked") in ("1", "true"), "vpn": qp.get("vpn") in ("1", "true")}
     if f["source"] and f["source"] not in SOURCES:
         raise ApiError(400, f"source must be one of: {', '.join(SOURCES)}.")
     if f["bans"] and f["bans"] not in BANS:
@@ -186,6 +192,7 @@ def players(request: Request, key=Depends(api_key)):
         total, rows = db.search_players(conn, f, limit=limit, offset=offset,
                                         ips=bool(key["can_ips"]), notes=bool(key["can_notes"]))
         db.attach_details(conn, rows)
+        vpn.attach(conn, rows)
     out = []
     for p in rows:
         d = _summary(p, key, [t["name"] for t in p["tags"]])
@@ -198,7 +205,7 @@ def players(request: Request, key=Depends(api_key)):
 def player(steam_id: str, key=Depends(api_key)):
     sid = _sid(steam_id)
     with db.get_db() as conn:
-        p = _player_row(conn, sid)
+        p = vpn.attach(conn, [_player_row(conn, sid)])[0]
         d = _summary(p, key, _tags(conn, [sid])[sid])
         d["names"] = [{"name": clean_name(r["name"]), "name_raw": r["name"], "records": r["n"],
                        "first_seen": r["first"], "last_seen": r["last"], "sources": (r["sources"] or "").split(",")}
@@ -207,12 +214,15 @@ def player(steam_id: str, key=Depends(api_key)):
                    group_concat(DISTINCT source) sources
             FROM sightings WHERE steam_id=? AND name != '' GROUP BY name ORDER BY last DESC, MAX(id) DESC""", (sid,))]
         if key["can_ips"]:
+            on = vpn.enabled(conn)
             d["ips"] = [{"ip": r["ip"], "records": r["n"], "first_seen": r["first"], "last_seen": r["last"],
-                         "other_accounts": r["others"]} for r in conn.execute("""
+                         "other_accounts": r["others"],
+                         "vpn": _vpn(vpn.describe(r["kind"], r["provider"], r["via"], r["pc_risk"])) if on else None}
+                        for r in conn.execute("""
                 SELECT s.ip, COUNT(*) n, MIN(NULLIF(s.seen_at,'')) first, MAX(NULLIF(s.seen_at,'')) last,
                        (SELECT COUNT(DISTINCT steam_id) FROM sightings o WHERE o.ip = s.ip AND o.steam_id != s.steam_id)
-                           others
-                FROM sightings s WHERE s.steam_id=? AND s.ip != '' GROUP BY s.ip
+                           others, v.kind, v.provider, v.via, v.pc_risk
+                FROM sightings s LEFT JOIN ip_flags v ON v.ip = s.ip WHERE s.steam_id=? AND s.ip != '' GROUP BY s.ip
                 ORDER BY last DESC, MAX(s.id) DESC""", (sid,))]
         d["records"] = conn.execute("SELECT COUNT(*) FROM sightings WHERE steam_id=?", (sid,)).fetchone()[0]
         d["linked"] = _linked(conn, sid, key)
@@ -249,6 +259,7 @@ async def lookup(request: Request, key=Depends(api_key)):
         with db.get_db() as conn:
             rows = {r["steam_id"]: dict(r) for r in conn.execute(
                 f"SELECT * FROM players WHERE steam_id IN ({','.join('?' * len(sids))})", sids)} if sids else {}
+            vpn.attach(conn, list(rows.values()))
             tags = _tags(conn, list(rows))
             out = []
             for sid in sids:
@@ -297,6 +308,7 @@ def discord_lookup(discord_id: str, key=Depends(api_key)):
         rows = [dict(r) for r in conn.execute("SELECT * FROM players WHERE discord_id=? COLLATE NOCASE"
                                               " OR discord_name=? COLLATE NOCASE"
                                               " ORDER BY last_seen DESC", (did, did))]
+        vpn.attach(conn, rows)
         tags = _tags(conn, [p["steam_id"] for p in rows])
     return {"query": did, "discord_id": did if did.isdigit() else None,
             "players": [_summary(p, key, tags[p["steam_id"]]) for p in rows]}

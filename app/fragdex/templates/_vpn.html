@@ -1,0 +1,4 @@
+{# The VPN, Tor, proxy or hosting label of an address. v: vpn.describe() #}
+{% macro vpn_label(v) -%}
+<span class="vpn-label vpn-{{ v.kind }}" title="{{ v.title }}">{{ v.label }}</span>
+{%- endmacro %}

@@ -91,6 +91,7 @@ nav:
       - Steam Web API: administration/steam.md
       - Discord Usernames: administration/discord.md
       - FragQ Links: administration/fragq.md
+      - VPN Detection: administration/vpn.md
       - Settings And .env Reference: administration/settings.md
       - HTTPS And Ports: administration/https.md
       - Updating: administration/updating.md

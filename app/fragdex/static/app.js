@@ -223,6 +223,83 @@
     fqPoll();
   }
 
+  // Settings: live progress of the base IP refresh, from the bytes downloaded and the ranges and addresses processed
+  var vp = document.querySelector("[data-vpn-progress]");
+  if (vp) {
+    var vpField = function (k) { return vp.querySelector('[data-vp="' + k + '"]'); };
+    var vpLabel = document.querySelector("[data-vp-label]");
+    var vpBar = vp.querySelector("[role=progressbar]");
+    var vpCount = function (n) { return Number(n).toLocaleString(); };
+    var vpBytes = function (n) {
+      if (n < 1024) return n + " B";
+      if (n < 1048576) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + " KB";
+      return (n / 1048576).toFixed(1) + " MB";
+    };
+    var vpTime = function (s) { return s < 90 ? s + " s" : Math.floor(s / 60) + " min " + (s % 60) + " s"; };
+    var vpStage = function (p) {
+      var of = vpCount(p.done) + " of " + vpCount(p.total);
+      if (p.stage === "download") {
+        if (!p.done) return "Connecting to " + (p.source || "the list") + "…";
+        return "Downloading " + p.source + " · " + vpBytes(p.done) + (p.total ? " of " + vpBytes(p.total) + " · " + p.percent + "%" : " received");
+      }
+      if (p.stage === "save") return "Saving " + (p.source ? p.source + " " : "") + "ranges · " + of;
+      if (p.stage === "match") return "Matching addresses · " + of;
+      return "Starting…";
+    };
+    var vpWasRunning = vp.getAttribute("data-state") === "running";
+    var vpBaseAt = vp.getAttribute("data-base-at") || "";
+    var vpRender = function (p) {
+      if (!p.running && p.wanted) {      // asked for, and the worker hasn't picked it up yet
+        vpWasRunning = true;
+        vp.hidden = false;
+        vp.setAttribute("data-indeterminate", "");
+        vpField("status").textContent = "Starting…";
+        return;
+      }
+      if (!p.running) {
+        if (p.base_at && p.base_at !== vpBaseAt) vpWasRunning = true;   // finished between two polls
+        vpBaseAt = p.base_at || vpBaseAt;
+        if (vpLabel) vpLabel.textContent = "Refresh base IPs";
+        if (vpWasRunning) {
+          vp.setAttribute("data-state", "idle");
+          vp.removeAttribute("data-indeterminate");
+          vpField("title").textContent = "Finished";
+          vpField("count").textContent = "";
+          vpField("bar").style.width = "100%";
+          vp.hidden = false;
+          var status = vpField("status"), link = document.createElement("a");
+          link.href = "/admin/settings#vpn";
+          link.textContent = "Reload to see the results";
+          link.addEventListener("click", function () { window.location.reload(); });
+          status.textContent = "";
+          status.appendChild(link);
+        }
+        vpWasRunning = false;
+        return;
+      }
+      vpWasRunning = true;
+      vp.hidden = false;
+      vp.setAttribute("data-state", "running");
+      if (vpLabel) vpLabel.textContent = "Refreshing…";
+      vpField("title").textContent = p.state === "matching" ? "Matching addresses" : "Refreshing base IPs";
+      vpField("count").textContent = p.count > 1 && p.stage !== "match" ? "List " + p.number + " of " + p.count : "";
+      var known = p.percent !== null && p.done > 0;
+      vp.toggleAttribute("data-indeterminate", !known);
+      vpField("bar").style.width = known ? p.percent + "%" : "";
+      if (known) vpBar.setAttribute("aria-valuenow", p.percent); else vpBar.removeAttribute("aria-valuenow");
+      vpField("status").textContent = vpStage(p);
+      vpField("elapsed").textContent = vpTime(p.elapsed);
+    };
+    var vpPoll = function () {
+      fetch("/admin/settings/vpn.json", { credentials: "same-origin" }).then(function (r) { return r.json(); })
+        .then(function (p) {
+          vpRender(p);
+          setTimeout(vpPoll, p.running ? 1000 : 5000);
+        }).catch(function () { setTimeout(vpPoll, 10000); });
+    };
+    vpPoll();
+  }
+
   // Import page: refresh while jobs are queued/running
   var watch = document.querySelector("[data-import-active]");
   if (watch && parseInt(watch.getAttribute("data-import-active"), 10) > 0) {

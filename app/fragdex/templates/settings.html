@@ -223,6 +223,110 @@
   </div>
 </section>
 
+{% from "_vpn.html" import vpn_label %}
+<section class="panel" id="vpn">
+  <div class="panel-head"><h2>VPN detection</h2>{% if vp.on and vp.total %}<span class="muted">{{ "{:,}".format(vp.anon) }} VPN, Tor or proxy · {{ "{:,}".format(vp.host) }} hosting</span>{% endif %}</div>
+  <div class="panel-body">
+    <p class="muted" style="margin-top:0">Labels addresses that are VPNs, Tor exits, proxies or hosting networks, on the Players page and player profiles. Free lists of network ranges, the <em>base IPs</em>, are downloaded every 7 days and matched on this server, so nothing about your players leaves it. With a <a href="https://proxycheck.io/" target="_blank" rel="noopener noreferrer">proxycheck.io</a> key, the addresses no list settles are looked up as well, which sends those addresses to proxycheck.io.</p>
+    <form method="post" action="/admin/vpn" class="vpn-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="check vpn-switch"><input type="checkbox" name="enabled" value="1" {{ 'checked' if vp.on }}> Turn on VPN detection</label>
+      <div class="scroll-x">
+      <table class="dtable vpn-sources">
+        <thead><tr><th>Use</th><th>Base list</th><th>Label</th><th class="num">Ranges</th><th>Loaded</th></tr></thead>
+        <tbody>
+        {% for s in vp.sources %}
+          <tr>
+            <td>{% if s.upload %}<button class="btn btn-sm btn-danger" type="submit" form="vpn-del-{{ s.kind }}" title="Remove this uploaded list"><svg class="i"><use href="#i-trash"/></svg></button>{% else %}<input type="checkbox" name="source_{{ s.id }}" value="1" {{ 'checked' if s.on }} aria-label="Use {{ s.name }}">{% endif %}</td>
+            <td><strong>{% if s.home %}<a href="{{ s.home }}" target="_blank" rel="noopener noreferrer">{{ s.name }}</a>{% else %}{{ s.name }}{% endif %}</strong>{% if s.default and not s.upload %} <span class="faint">(default)</span>{% endif %}<div class="hint">{{ s.note }}</div>
+              {% if s.error and s.on %}<div class="flash flash-warn vpn-source-error">{{ s.error }} {% if s.loaded_at %}Still using the list from {{ s.loaded_at[:10] }}.{% else %}Nothing has loaded from it yet.{% endif %} <span class="faint">{{ s.error_at }} UTC</span></div>{% endif %}</td>
+            <td>{{ vpn_label({'kind': s.kind, 'label': s.label, 'title': s.label ~ ' label'}) }}</td>
+            <td class="num">{{ "{:,}".format(s.ranges) if s.ranges else '—' }}</td>
+            <td class="nowrap muted">{{ s.loaded_at[:16] if s.loaded_at else '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <div class="vpn-options">
+        <label class="check" title="Hosting addresses keep their Host label; a lookup would only say whether one is a VPN"><input type="checkbox" name="skip_host" value="1" {{ 'checked' if vp.skip_host }}> Don't look up hosting addresses</label>
+        <label class="check" title="Changes linked accounts: players who only share a VPN, Tor or proxy address are no longer linked"><input type="checkbox" name="no_links" value="1" {{ 'checked' if vp.no_links }}> VPN, Tor and proxy addresses don't link accounts</label>
+        <div class="field vpn-budget"><label for="vpn-budget">Lookups a day</label><input id="vpn-budget" type="number" name="budget" min="0" max="10000000" value="{{ vp.budget }}"><span class="hint">A free proxycheck.io key allows 1,000. Leave some for new players.</span></div>
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">Save</button>
+    </form>
+    {% for s in vp.sources if s.upload %}
+    <form method="post" action="/admin/vpn/upload/{{ s.kind }}/delete" id="vpn-del-{{ s.kind }}" data-confirm="Remove the uploaded {{ s.label }} list? Addresses labelled only by it lose their label."><input type="hidden" name="csrf" value="{{ csrf }}"></form>
+    {% endfor %}
+
+    <h3 class="vpn-sub">proxycheck.io</h3>
+    {% if vp.key_from_env %}
+      <p>The key is set by the <code>PROXYCHECK_KEY</code> environment variable (<code>{{ vp.key_hint }}</code>).</p>
+    {% else %}
+    <form method="post" action="/admin/vpn/key" class="token-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {{ secret_input('proxycheck_key', 'proxycheck.io key', vp.key_hint ~ ' (enter a new key to replace, empty to remove)' if vp.key_set else '', 'proxycheck.io key') }}
+      <button class="btn btn-primary" type="submit">Save key</button>
+    </form>
+    {% endif %}
+    <p class="hint">Optional. Get a free key at <a href="https://proxycheck.io/" target="_blank" rel="noopener noreferrer">proxycheck.io</a>. Each address looked up counts as one query; requests ask proxycheck.io not to log them in your dashboard. A VPN it finds on a hosting network labels the whole network range, so its other addresses aren't looked up.</p>
+
+    {% if vp.on %}
+    <div class="form-row-inline vpn-actions">
+      <form method="post" action="/admin/vpn/refresh">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn btn-sm" type="submit"><svg class="i"><use href="#i-refresh"/></svg><span data-vp-label>{{ 'Refreshing…' if vp.running else 'Refresh base IPs' }}</span></button>
+      </form>
+      <span class="hint">{% if vp.base_at %}Last downloaded {{ vp.base_at[:16] }} UTC; again every 7 days.{% else %}Not downloaded yet.{% endif %}</span>
+    </div>
+
+    <div class="progress" data-vpn-progress data-state="{{ 'running' if vp.running or vp.refresh_wanted else 'idle' }}" data-base-at="{{ vp.base_at }}"{{ '' if vp.running or vp.refresh_wanted else ' hidden' }}>
+      <div class="progress-head">
+        <span data-vp="title">Refreshing base IPs</span>
+        <span class="progress-count" data-vp="count"></span>
+      </div>
+      <div class="bar" role="progressbar" aria-label="Base IP refresh progress" aria-valuemin="0" aria-valuemax="100"><span data-vp="bar" style="width: 0%"></span></div>
+      <div class="progress-foot">
+        <span data-vp="status">Starting…</span>
+        <span data-vp="elapsed"></span>
+      </div>
+    </div>
+
+    <dl class="kv vpn-coverage">
+      <dt>Addresses</dt><dd>{{ "{:,}".format(vp.total) }}{% if vp.unmatched %} <span class="muted">({{ "{:,}".format(vp.unmatched) }} waiting to be matched)</span>{% endif %}</dd>
+      <dt>Settled by the lists</dt><dd>{{ "{:,}".format(vp.anon) }} VPN, Tor or proxy · {{ "{:,}".format(vp.host) }} hosting</dd>
+      <dt>Looked up</dt><dd>{{ "{:,}".format(vp.checked) }} on proxycheck.io{% if vp.key_set %} · {{ "{:,}".format(vp.used) }} of {{ "{:,}".format(vp.budget) }} today{% endif %}</dd>
+      <dt>Left to look up</dt><dd>{{ "{:,}".format(vp.left) }}{% if vp.left and vp.key_set and vp.budget %} <span class="muted">· about {{ vp.days }} day{{ '' if vp.days == 1 else 's' }} at {{ "{:,}".format(vp.budget) }} a day</span>{% endif %}</dd>
+    </dl>
+    {% if vp.paused == 'no_lists' %}
+    <div class="flash flash-warn">None of the base lists could be loaded, so lookups are paused rather than spent on addresses a list would cover. Refresh base IPs to try again.
+      <form method="post" action="/admin/vpn/anyway" style="margin-top:8px"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn btn-sm" type="submit">Look up anyway</button></form>
+    </div>
+    {% elif vp.paused == 'waiting' and vp.key_set %}
+    <p class="hint">Lookups start once the base lists have downloaded.</p>
+    {% elif not vp.key_set %}
+    <p class="hint">{% if vp.left %}Add a proxycheck.io key to look up the addresses the lists don't settle.{% endif %}</p>
+    {% elif vp.lookup == 'budget' %}
+    <p class="hint">Today's lookups are used up. They start again at 07:00 UTC, when proxycheck.io's day begins.</p>
+    {% elif vp.lookup == 'done' and not vp.left %}
+    <p class="hint">Every recorded address is settled.</p>
+    {% endif %}
+    {% if vp.lookup_error and vp.key_set %}<div class="flash flash-warn">{{ vp.lookup_error }} Lookups will try again later; labels found so far are kept.</div>{% endif %}
+    {% endif %}
+
+    <details class="vpn-upload">
+      <summary class="btn btn-sm"><svg class="i"><use href="#i-upload"/></svg>Upload a list</summary>
+      <form method="post" action="/admin/vpn/upload" enctype="multipart/form-data" class="token-form">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <select name="kind" aria-label="Label for the list">{% for k, label in vp.labels.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}</select>
+        <input type="file" name="file" accept=".txt,.csv,.netset,text/plain" required aria-label="List file">
+        <button class="btn btn-primary btn-sm" type="submit">Upload</button>
+      </form>
+      <p class="hint">One address or range per line, such as <code>198.51.100.0/24</code>; <code>#</code> starts a comment. For servers that can't download the lists. An upload replaces the last one with the same label.</p>
+    </details>
+  </div>
+</section>
+
 <section class="panel" id="api">
   <div class="panel-head"><h2>Fragdex API</h2><span class="muted">{{ api_keys|length }} key{{ '' if api_keys|length == 1 else 's' }}</span></div>
   <div class="panel-body">

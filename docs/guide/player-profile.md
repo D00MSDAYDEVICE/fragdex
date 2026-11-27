@@ -20,6 +20,8 @@ Every IP address with first and last seen dates, how often it was seen, its sour
 
 An IP shared by more accounts than the linked-account limit (10 by default) is greyed out: it is most likely a VPN, a LAN centre or carrier-grade NAT, and it is ignored for linking. See [Linked accounts](linked-accounts.md).
 
+While [VPN detection](../administration/vpn.md) is on, a **VPN** column after **Sources** labels each address that is a **VPN**, **Tor** exit, **Proxy** or **Host** (hosting network). Hover a label to see the provider and where it came from.
+
 The **Hide IPs** toggle masks the addresses on screen, as on the Players page.
 
 ## Linked accounts

@@ -53,6 +53,7 @@ docker compose up -d
 | `DISCORD_REFRESH_DAYS` | `7` | How often each Discord username is checked again. |
 | `FRAGQ_URL`, `FRAGQ_KEY` | none | Address and connector key of one trusted [FragQ server](fragq.md). More can be added on the Settings page. |
 | `FRAGQ_SYNC_MINUTES` | `15` | How often every FragQ server is checked for links. |
+| `PROXYCHECK_KEY` | none | Optional [proxycheck.io](vpn.md#proxycheckio-lookups) key for VPN detection. Overrides a key saved on the Settings page. |
 
 ### Importing
 

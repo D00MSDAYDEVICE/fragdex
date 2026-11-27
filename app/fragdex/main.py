@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import __version__, api, apikeys, auth, config, db, discord_users, fragq, steam, worker
+from . import __version__, api, apikeys, auth, config, db, discord_users, fragq, steam, vpn, worker
 from .importers.common import (STEAM64_RE, Sighting, clean_name, file_kind, is_local_ip, normalize_discord_id,
                                normalize_ip, normalize_name, normalize_steam_id, parse_date)
 from .importers.export import FORMAT_VERSION, ExportWriter
@@ -255,6 +255,7 @@ def read_filters(request: Request):
     f["has_discord"] = qp.get("has_discord") == "1"
     f["verified"] = qp.get("verified") == "1"
     f["has_alts"] = qp.get("has_alts") == "1"
+    f["vpn"] = qp.get("vpn") == "1"
     if not f["tag"].isdigit():
         f["tag"] = ""
     if f["source"] not in SOURCES:
@@ -297,6 +298,8 @@ def players(request: Request):
     with db.get_db() as conn:
         total, rows = db.search_players(conn, f, limit=per, offset=(page - 1) * per)
         db.attach_details(conn, rows)
+        vpn.attach(conn, rows)
+        vpn_on = vpn.enabled(conn)
         tags = [dict(r) for r in conn.execute("SELECT * FROM tags ORDER BY name")]
         stats = {
             "players": conn.execute("SELECT COUNT(*) FROM players").fetchone()[0],
@@ -309,7 +312,7 @@ def players(request: Request):
     active = any(f[k] for k in f if k not in ("sort", "dir"))
     return render(request, "players.html", user, nav="players", players=rows, total=total, page=page,
                   pages=pages, per=per, per_options=PER_PAGE, f=f, tags=tags, sources=SOURCES, stats=stats,
-                  filter_qs=filter_qs, filters_active=active, steam_enabled=steam_enabled)
+                  filter_qs=filter_qs, filters_active=active, steam_enabled=steam_enabled, vpn_on=vpn_on)
 
 
 def _csv_safe(v):
@@ -329,9 +332,9 @@ def export_csv(request: Request):
             w = csv.writer(buf)
             w.writerow(["steam_id", "discord_id", "discord_name", "name", "name_raw", "last_ip", "first_seen", "last_seen", "aliases", "ips",
                         "linked_accounts", "tags", "notes", "steam_persona", "vac_bans", "game_bans",
-                        "steam_profile", "steam_verified", "discord_status"])
+                        "steam_profile", "steam_verified", "discord_status", "vpn"])
             for i in range(0, len(rows), 500):
-                chunk = db.attach_details(conn, rows[i:i + 500])
+                chunk = vpn.attach(conn, db.attach_details(conn, rows[i:i + 500]))
                 for p in chunk:
                     w.writerow([_csv_safe(x) for x in (
                         p["steam_id"], p["discord_id"], p["discord_name"], clean_name(p["last_name"]), p["last_name"], p["last_ip"],
@@ -340,7 +343,8 @@ def export_csv(request: Request):
                         " | ".join(x["ip"] for x in p["ips"]), p["alt_count"],
                         " | ".join(t["name"] for t in p["tags"]), p["notes"], p["steam_persona"], p["vac_bans"],
                         p["game_bans"], f"https://steamcommunity.com/profiles/{p['steam_id']}",
-                        "yes" if p["steam_verified"] else "no", p["discord_status"])])
+                        "yes" if p["steam_verified"] else "no", p["discord_status"],
+                        p["vpn"]["label"] if p["vpn"] else "")])
                 yield buf.getvalue()
                 buf.seek(0)
                 buf.truncate()
@@ -421,9 +425,14 @@ def player(request: Request, sid: str):
             SELECT s.ip, COUNT(*) n, MIN(NULLIF(s.seen_at,'')) first, MAX(NULLIF(s.seen_at,'')) last,
                    group_concat(DISTINCT s.source) sources,
                    (SELECT COUNT(DISTINCT steam_id) FROM sightings o WHERE o.ip = s.ip AND o.steam_id != s.steam_id)
-                       others
-            FROM sightings s WHERE s.steam_id=? AND s.ip != '' GROUP BY s.ip
+                       others,
+                   v.kind vpn_kind, v.provider vpn_provider, v.via vpn_via, v.pc_risk vpn_risk
+            FROM sightings s LEFT JOIN ip_flags v ON v.ip = s.ip WHERE s.steam_id=? AND s.ip != '' GROUP BY s.ip
             ORDER BY last DESC, MAX(s.id) DESC""", (sid,))]
+        for x in ips:
+            x["vpn"] = vpn.describe(x.pop("vpn_kind"), x.pop("vpn_provider"), x.pop("vpn_via"), x.pop("vpn_risk"))
+        vpn_on = vpn.enabled(conn)
+        vpn_unlinked = db.vpn_unlinked(conn)
         sightings = [dict(r) for r in conn.execute("""
             SELECT * FROM sightings WHERE steam_id=? ORDER BY seen_at DESC, id DESC"""
             + ("" if all_records else f" LIMIT {RECORDS_SHOWN}"), (sid,))]
@@ -437,7 +446,7 @@ def player(request: Request, sid: str):
                   names_shown=NAMES_SHOWN, records_shown=RECORDS_SHOWN, all_names=all_names, all_records=all_records,
                   ips=ips, sightings=sightings,
                   sighting_total=sighting_total, tags=tags, linked=linked, steam_enabled=steam_enabled,
-                  alt_limit=config.ALT_IP_MAX_ACCOUNTS)
+                  alt_limit=config.ALT_IP_MAX_ACCOUNTS, vpn_on=vpn_on, vpn_unlinked=vpn_unlinked)
 
 
 @app.post("/player/{sid}/notes")
@@ -952,6 +961,7 @@ def _settings(request, user, new_key=None):
         steam_status = _steam_status(conn)
         discord_status = _discord_status(conn)
         fragq_status = _fragq_status(conn)
+        vpn_status = _vpn_status(conn)
         apikeys.usage.flush(conn)
         keys = [dict(r, state=apikeys.state(r)) for r in conn.execute("SELECT * FROM api_keys ORDER BY name, id")]
     try:
@@ -961,6 +971,7 @@ def _settings(request, user, new_key=None):
     return render(request, "settings.html", user, nav="settings", key_set=bool(key),
                   key_from_env=bool(config.STEAM_API_KEY_ENV), key_hint=(key[:4] + "…" + key[-4:]) if key else "",
                   info=info, cfg=config, wstatus=worker.status, sp=steam_status, dp=discord_status, fq=fragq_status,
+                  vp=vpn_status,
                   api_keys=keys,
                   new_key=new_key,
                   api_url=str(request.base_url).rstrip("/") + api.router.prefix, default_rate=apikeys.DEFAULT_RATE,
@@ -1275,6 +1286,169 @@ def _fragq_progress():
 def settings_fragq_progress(request: Request):
     require(request, "admin")
     return JSONResponse(_fragq_progress())
+
+
+def _vpn_status(conn):
+    """The VPN detection panel: lists, coverage and lookups, plus what the worker is doing."""
+    p = vpn.panel(conn)
+    p.update(running=worker.status["vpn_state"] in ("refreshing", "matching"), lookup=worker.status["vpn_lookup"],
+             refresh_wanted=worker._vpn_refresh.is_set())
+    return p
+
+
+def _vpn_progress():
+    """What VPN detection is doing, as the worker last reported it: bytes downloaded, ranges saved, addresses matched."""
+    state = worker.status["vpn_state"]
+    if state not in ("refreshing", "matching"):
+        with db.get_db() as conn:
+            base_at = db.get_setting(conn, "vpn_base_at")
+        return {"running": False, "state": state, "wanted": worker._vpn_refresh.is_set(), "base_at": base_at}
+    p = worker.status["vpn_progress"] or {}      # replaced whole by the worker, so read once
+    started = worker.status["vpn_started"]
+    done, total = p.get("done", 0), p.get("total")
+    return {"running": True, "state": state, "source": p.get("source", ""), "number": p.get("number", 0),
+            "count": p.get("count", 0), "stage": p.get("stage", "start"), "done": done, "total": total,
+            "percent": min(100, round(done * 100 / total)) if total else None,
+            "elapsed": round(time.time() - started) if started else 0}
+
+
+@app.get("/admin/settings/vpn.json")
+def settings_vpn_progress(request: Request):
+    require(request, "admin")
+    return JSONResponse(_vpn_progress())
+
+
+@app.post("/admin/vpn")
+async def vpn_settings(request: Request):
+    """The VPN detection switches: on or off, which lists, hosting lookups, linking, the daily budget."""
+    require(request, "admin")
+    form = await checked_form(request)
+    try:
+        budget = int(str(form.get("budget", "")).strip() or vpn.DEFAULT_BUDGET)
+    except ValueError:
+        budget = -1
+    if not 0 <= budget <= 10_000_000:
+        flash(request, "Enter the number of lookups a day, such as 900 for a free proxycheck.io key.", "error")
+        return back("/admin/settings#vpn")
+    with db.get_db() as conn:
+        was_on = vpn.enabled(conn)
+        on = form.get("enabled") == "1"
+        was_unlinked = db.vpn_unlinked(conn)
+        db.set_setting(conn, "vpn_enabled", "1" if on else "")
+        db.set_setting(conn, "vpn_skip_host", "1" if form.get("skip_host") == "1" else "")
+        db.set_setting(conn, "vpn_no_links", "1" if form.get("no_links") == "1" else "")
+        db.set_setting(conn, "vpn_budget", str(budget))
+        turned_on = []
+        states = vpn.source_states(conn)
+        for s in vpn.SOURCES:
+            want = form.get(f"source_{s.id}") == "1"
+            if want != vpn.source_enabled(s, states):
+                vpn.set_source_enabled(conn, s.id, want)
+                if want:
+                    turned_on.append(s.id)
+        if db.vpn_unlinked(conn) != was_unlinked:
+            worker.links_changed()
+        first = on and not db.get_setting(conn, "vpn_base_at")
+    worker.status["vpn_next_lookup"] = None
+    # turning it on downloads every list, since lists may have been ticked while it was off; otherwise only new ones
+    worker.wake_vpn(refresh=on and (not was_on or bool(turned_on)), only=None if first or not was_on else turned_on)
+    if on and not was_on:
+        flash(request, "VPN detection is on. The base IP lists are downloading; the progress shows in the panel.")
+    elif not on and was_on:
+        flash(request, "VPN detection is off. Labels are hidden; what was found is kept for when it's turned on again.")
+    else:
+        flash(request, "Saved the VPN detection settings." + (" Downloading the lists you turned on." if on and turned_on else ""))
+    return back("/admin/settings#vpn")
+
+
+@app.post("/admin/vpn/key")
+async def vpn_key(request: Request):
+    require(request, "admin")
+    form = await checked_form(request)
+    if config.PROXYCHECK_KEY_ENV:
+        flash(request, "The proxycheck.io key is set by PROXYCHECK_KEY in .env. Change it there.", "error")
+        return back("/admin/settings#vpn")
+    key = str(form.get("proxycheck_key", "")).strip()
+    if key and not re.fullmatch(r"[\w-]{8,100}", key):
+        flash(request, "That doesn't look like a proxycheck.io key. Copy it from your proxycheck.io dashboard.", "error")
+        return back("/admin/settings#vpn")
+    with db.get_db() as conn:
+        db.set_setting(conn, "proxycheck_key", key)
+        db.set_setting(conn, "vpn_lookup_error", "")
+    worker.status["vpn_next_lookup"] = None
+    worker.wake_vpn()
+    flash(request, "proxycheck.io key saved." if key else "proxycheck.io key removed. Addresses are no longer looked up.")
+    return back("/admin/settings#vpn")
+
+
+@app.post("/admin/vpn/refresh")
+async def vpn_refresh(request: Request):
+    require(request, "admin")
+    await checked_form(request)
+    with db.get_db() as conn:
+        if not vpn.enabled(conn):
+            flash(request, "Turn VPN detection on first.", "error")
+            return back("/admin/settings#vpn")
+    worker.wake_vpn(refresh=True)
+    flash(request, "Refreshing the base IP lists. The progress shows in the VPN detection panel.")
+    return back("/admin/settings#vpn")
+
+
+@app.post("/admin/vpn/anyway")
+async def vpn_lookup_anyway(request: Request):
+    """Look addresses up although no base list could be loaded."""
+    require(request, "admin")
+    await checked_form(request)
+    with db.get_db() as conn:
+        db.set_setting(conn, "vpn_lookup_anyway", "1")
+    worker.status["vpn_next_lookup"] = None
+    worker.wake_vpn()
+    flash(request, "Looking addresses up with proxycheck.io without the base lists.")
+    return back("/admin/settings#vpn")
+
+
+VPN_UPLOAD_MB = 50
+
+
+@app.post("/admin/vpn/upload")
+async def vpn_upload(request: Request):
+    require(request, "admin")
+    form = await checked_form(request, max_files=1, max_fields=10)
+    upload = form.get("file")
+    kind = str(form.get("kind", ""))
+    if not hasattr(upload, "filename") or not upload.filename:
+        flash(request, "Choose a file with one address or range per line.", "error")
+        return back("/admin/settings#vpn")
+    body = await upload.read(VPN_UPLOAD_MB * 1048576 + 1)
+    await upload.close()
+    if len(body) > VPN_UPLOAD_MB * 1048576:
+        flash(request, f"That list is over {VPN_UPLOAD_MB} MB.", "error")
+        return back("/admin/settings#vpn")
+    def store():
+        with db.get_db() as conn:   # opened in the thread that uses it
+            return vpn.store_upload(conn, kind, body)
+
+    try:
+        kept, bad = await run_in_threadpool(store)
+    except vpn.SourceError as e:
+        flash(request, str(e), "error")
+        return back("/admin/settings#vpn")
+    worker.wake_vpn()
+    flash(request, f"Added {kept:,} ranges as {vpn.LABELS[kind]}." + (f" {bad:,} lines weren't addresses or ranges and were left out." if bad else ""))
+    return back("/admin/settings#vpn")
+
+
+@app.post("/admin/vpn/upload/{kind}/delete")
+async def vpn_upload_delete(request: Request, kind: str):
+    require(request, "admin")
+    await checked_form(request)
+    if kind not in vpn.LABELS:
+        raise NotFound()
+    with db.get_db() as conn:
+        vpn.remove_upload(conn, vpn.UPLOAD + kind)
+    worker.wake_vpn()
+    flash(request, f"Removed the uploaded {vpn.LABELS[kind]} list.")
+    return back("/admin/settings#vpn")
 
 
 @app.get("/admin/settings/steam.json")

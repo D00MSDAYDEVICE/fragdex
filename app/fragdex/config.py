@@ -38,6 +38,8 @@ FRAGQ_URL_ENV = os.environ.get("FRAGQ_URL", "").strip().rstrip("/")
 FRAGQ_KEY_ENV = os.environ.get("FRAGQ_KEY", "").strip()
 FRAGQ_SYNC_MINUTES = max(1, _int("FRAGQ_SYNC_MINUTES", 15))
 
+PROXYCHECK_KEY_ENV = os.environ.get("PROXYCHECK_KEY", "").strip()
+
 WATCH_INTERVAL = _int("WATCH_INTERVAL", 60)
 WATCH_SETTLE_SECONDS = _int("WATCH_SETTLE_SECONDS", 30)
 MAX_UPLOAD_MB = _int("MAX_UPLOAD_MB", 1024)

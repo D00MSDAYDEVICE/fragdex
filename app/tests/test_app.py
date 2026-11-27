@@ -1209,6 +1209,9 @@ def test_viewer_role(client):
     assert client.get("/download/minqlx/fragdex.py").status_code == 403
     assert client.get("/download/qlsm/fragdex-qlsm-addon.zip").status_code == 403
     assert client.get("/admin/settings/fragq.json").status_code == 403
+    assert client.get("/admin/settings/vpn.json").status_code == 403
+    for path in ("/admin/vpn", "/admin/vpn/key", "/admin/vpn/refresh", "/admin/vpn/anyway", "/admin/vpn/upload"):
+        assert client.post(path, data={"csrf": token}).status_code == 403
     r = client.get("/player/76561197960287930")
     assert r.status_code == 200 and "/notes" not in r.text
 
@@ -1307,3 +1310,324 @@ def test_same_discord_links_verified_accounts(client):
     worker._api_alts_dirty.clear()
     client.post(f"/player/{alt}/discord", data={"csrf": csrf_of(page), "discord_id": "80351110224677009"})
     assert worker._api_alts_dirty.is_set()
+
+
+# ---------------------------------------------------------------- VPN detection
+
+class _FakeStream:
+    def __init__(self, value, length=True):
+        self.status_code = 200 if isinstance(value, bytes) else value
+        self.body = value if isinstance(value, bytes) else b""
+        self.headers = {"content-length": str(len(self.body))} if length else {}
+        self.num_bytes_downloaded = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def iter_bytes(self):
+        for i in range(0, len(self.body), 64):
+            piece = self.body[i:i + 64]
+            self.num_bytes_downloaded = i + len(piece)
+            yield piece
+
+
+class _FakeLists:
+    """Stands in for httpx.Client when downloading the base lists: url -> body, HTTP status or exception."""
+    def __init__(self, routes):
+        self.routes, self.seen = routes, []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def stream(self, method, url):
+        self.seen.append(url)
+        value = self.routes.get(url, 404)
+        if isinstance(value, Exception):
+            raise value
+        return _FakeStream(value)
+
+
+class _FakeProxycheck:
+    """Stands in for httpx.Client when asking proxycheck.io. answer(ip) -> the dict proxycheck gives for it."""
+    def __init__(self, answer, status=200, body=None):
+        self.answer, self.status, self.body, self.calls = answer, status, body, []
+
+    def post(self, url, params, data):
+        import json as _json
+        ips = data["ips"].split(",")
+        self.calls.append({"url": url, "params": params, "ips": ips})
+        body = self.body if self.body is not None else {"status": "ok", **{ip: self.answer(ip) for ip in ips}}
+        status = self.status
+
+        class R:
+            status_code = status
+
+            def json(self):
+                return _json.loads(_json.dumps(body))
+        return R()
+
+
+def _vpn_reset(conn):
+    for t in ("ip_ranges", "ip_flags", "ip_sources"):
+        conn.execute(f"DELETE FROM {t}")
+    conn.execute("DELETE FROM settings WHERE key LIKE 'vpn_%' OR key = 'proxycheck_key'")
+
+
+def _vpn_urls():
+    from fragdex import vpn
+    return {s.id: [u for u, _p, _n in s.urls] for s in vpn.SOURCES}
+
+
+def _base_routes(vpn4=b"198.51.100.0/25\n# a comment\n2001:db8:aa::/48\n", tor=b"192.0.2.9\n", dc=b"198.51.100.0/24\n192.0.2.0/24\n198.19.0.0/16\n100.64.0.0/16\n"):
+    u = _vpn_urls()
+    return {u["x4b_vpn"][0]: vpn4, u["x4b_vpn"][1]: b"", u["tor"][0]: tor, u["x4b_dc"][0]: dc, u["x4b_dc"][1]: b""}
+
+
+def test_vpn_parsers_and_networks():
+    from fragdex import vpn
+    body = b"# 2026-11-27\n198.51.100.7 # windscribe\n198.51.100.0/24\nnot-an-ip\n10.0.0.0/4\n127.0.0.1\n\n2001:db8::/32\n"
+    items = list(vpn.parse_lines(body))
+    assert ("198.51.100.7", "Windscribe") in items and ("198.51.100.0/24", "") in items
+    nets, bad = vpn.networks(items)
+    # the single address is inside the /24; 10.0.0.0/4 is far too wide; loopback is never a VPN
+    assert [str(n) for n, _ in nets] == ["198.51.100.0/24", "2001:db8::/32"]
+    assert bad == 3
+    assert list(vpn.parse_mullvad(b'[{"type":"wireguard","ipv4_addr_in":"192.0.2.1","ipv6_addr_in":null},'
+                                  b'{"type":"bridge","ipv4_addr_in":"192.0.2.2"}]', "Mullvad")) == [("192.0.2.1", "Mullvad")]
+    assert list(vpn.parse_nordvpn(b'[{"station":"192.0.2.3","ipv6_station":""}]', "NordVPN")) == [("192.0.2.3", "NordVPN")]
+    assert list(vpn.parse_csv_first(b"# geofeed\n192.0.2.0/24,US,US-CA,,\n", "Linode")) == [("192.0.2.0/24", "Linode")]
+    with pytest.raises(vpn.SourceError):
+        list(vpn.parse_aws(b"<html>", "AWS"))
+
+
+def test_vpn_base_lists_soft_fail(monkeypatch):
+    """A list that fails keeps the ranges it had; the others still update."""
+    import httpx
+    from fragdex import vpn
+    u = _vpn_urls()
+    fake = _FakeLists(_base_routes())
+    monkeypatch.setattr(vpn, "_client", lambda: fake)
+    seen = []
+    with db.get_db() as conn:
+        _vpn_reset(conn)
+        assert [s.id for s in vpn.enabled_sources(conn)] == ["x4b_vpn", "tor", "x4b_dc"]
+        assert vpn.refresh_base(conn, lambda **p: seen.append(p)) == {"x4b_vpn": None, "tor": None, "x4b_dc": None}
+        states = vpn.source_states(conn)
+        assert {k: v["ranges"] for k, v in states.items()} == {"x4b_vpn": 2, "tor": 1, "x4b_dc": 4}
+        assert {p["stage"] for p in seen} == {"download", "save"}
+        assert any(p["stage"] == "download" and p["done"] and p["total"] for p in seen)
+        assert not vpn.base_due(conn)
+
+        bad = _base_routes(dc=b"198.51.100.0/24\n")             # half the size: set aside
+        bad[u["x4b_vpn"][0]] = httpx.ConnectError("refused")
+        bad[u["tor"][0]] = 503
+        monkeypatch.setattr(vpn, "_client", lambda: _FakeLists(bad))
+        results = vpn.refresh_base(conn)
+        assert "Couldn't reach raw.githubusercontent.com: ConnectError." == results["x4b_vpn"]
+        assert results["tor"] == "check.torproject.org returned HTTP 503."
+        assert "under half" in results["x4b_dc"]
+        states = vpn.source_states(conn)
+        assert {k: v["ranges"] for k, v in states.items()} == {"x4b_vpn": 2, "tor": 1, "x4b_dc": 4}
+        assert all(v["error"] and v["loaded_at"] for v in states.values())
+        assert conn.execute("SELECT COUNT(*) FROM ip_ranges").fetchone()[0] == 7
+
+        # a timeout and an oversized list are soft failures too; a good download clears the error
+        timeout = _base_routes()
+        timeout[u["tor"][0]] = httpx.ReadTimeout("slow")
+        monkeypatch.setattr(vpn, "MAX_BYTES", 50)
+        monkeypatch.setattr(vpn, "_client", lambda: _FakeLists(timeout))
+        results = vpn.refresh_base(conn)
+        assert results["tor"] == "Couldn't reach check.torproject.org: it timed out."
+        assert "over" in results["x4b_dc"] and results["x4b_vpn"] is None
+        assert vpn.source_states(conn)["x4b_vpn"]["error"] == ""
+
+        # turning a list off removes its ranges
+        assert vpn.set_source_enabled(conn, "x4b_dc", False)
+        assert not conn.execute("SELECT 1 FROM ip_ranges WHERE source='x4b_dc'").fetchone()
+        assert [s.id for s in vpn.enabled_sources(conn)] == ["x4b_vpn", "tor"]
+        _vpn_reset(conn)
+
+
+def _vpn_players(conn, rows):
+    """rows: (steam id, ip, seen_at). Adds them and gives their addresses ip_flags rows."""
+    from fragdex import vpn
+    from fragdex.importers.common import Sighting
+    with db.transaction(conn):
+        db.add_sightings(conn, [Sighting(steam_id=s, name=f"Vpn{s[-3:]}", ip=ip, seen_at=at) for s, ip, at in rows], "log")
+        db.refresh_players(conn, {s for s, _i, _a in rows})
+    vpn.add_new_addresses(conn)
+
+
+def test_vpn_matching_and_lookups(monkeypatch):
+    from fragdex import vpn
+    monkeypatch.setattr(vpn, "_client", lambda: _FakeLists(_base_routes()))
+    recent = db.now()
+    with db.get_db() as conn:
+        _vpn_reset(conn)
+        db.set_setting(conn, "vpn_sightings_mark", str(conn.execute("SELECT MAX(id) FROM sightings").fetchone()[0] or 0))
+        _vpn_players(conn, [("76561198000000901", "198.51.100.10", recent),    # in the VPN list and the datacenter list
+                            ("76561198000000902", "192.0.2.9", recent),        # a Tor exit, in the datacenter list
+                            ("76561198000000903", "192.0.2.50", recent),       # datacenter only
+                            ("76561198000000904", "203.0.113.70", recent),     # in no list
+                            ("76561198000000905", "203.0.113.80", recent),     # same /24 as the one above
+                            ("76561198000000906", "2001:db8:aa::5", recent),   # IPv6, in the VPN list
+                            ("76561198000000907", "198.18.0.1", "2020-01-01 00:00:00")])
+        vpn.refresh_base(conn)
+        assert vpn.match(conn) >= 3
+        kinds = dict(conn.execute("SELECT ip, kind FROM ip_flags WHERE ip IN ('198.51.100.10','192.0.2.9','192.0.2.50',"
+                                  "'203.0.113.70','2001:db8:aa::5')").fetchall())
+        assert kinds == {"198.51.100.10": "vpn", "192.0.2.9": "tor", "192.0.2.50": "host", "203.0.113.70": "",
+                         "2001:db8:aa::5": "vpn"}
+
+        # no key: nothing is asked
+        assert vpn.lookup(conn) == (0, "nokey")
+        db.set_setting(conn, "proxycheck_key", "pc-test-key-0001")
+        # one address per /24, list-settled addresses are skipped, hosting ones and old ones last
+        assert vpn.queue(conn, 10) == ["203.0.113.70", "198.18.0.1", "192.0.2.50"]
+        db.set_setting(conn, "vpn_skip_host", "1")
+        assert vpn.queue(conn, 10) == ["203.0.113.70", "198.18.0.1"]
+
+        def answer(ip):
+            if ip == "203.0.113.70":
+                return {"risk": 50, "network": {"range": "203.0.113.0/24", "provider": "Example Hosting", "type": "Hosting"},
+                        "detections": {"vpn": True, "hosting": True}, "operator": {"name": "TestVPN"}}
+            return {"risk": 0, "network": {"range": "198.18.0.0/15", "type": "Residential"}, "detections": {}}
+        fake = _FakeProxycheck(answer)
+        db.set_setting(conn, "vpn_budget", "1")
+        assert vpn.lookup(conn, fake) == (1, "ok")
+        assert fake.calls[0]["params"] == {"key": "pc-test-key-0001", "tag": "0"} and fake.calls[0]["ips"] == ["203.0.113.70"]
+        assert vpn.lookup(conn, fake) == (0, "budget") and vpn.used_today(conn) == 1
+        vpn.match(conn)
+        # the VPN's network range labels the other address in it without asking
+        row = conn.execute("SELECT kind, provider, via FROM ip_flags WHERE ip='203.0.113.80'").fetchone()
+        assert tuple(row) == ("vpn", "TestVPN", "proxycheck")
+        row = conn.execute("SELECT kind, via, pc_risk FROM ip_flags WHERE ip='203.0.113.70'").fetchone()
+        assert tuple(row) == ("vpn", "proxycheck", 50)
+        db.set_setting(conn, "vpn_budget", "100")
+        assert vpn.queue(conn, 10) == ["198.18.0.1"]
+        assert vpn.lookup(conn, fake) == (1, "ok")
+        vpn.match(conn)
+        assert conn.execute("SELECT kind, pc_kind FROM ip_flags WHERE ip='198.18.0.1'").fetchone()[:] == ("", "")
+        assert vpn.lookup(conn, fake) == (0, "done")
+        # a residential range is never applied to other addresses
+        assert conn.execute("SELECT COUNT(*) FROM ip_ranges WHERE source='proxycheck'").fetchone()[0] == 1
+
+        # refused: the reason is proxycheck's, never the key, and a used-up limit waits for proxycheck's new day
+        conn.execute("UPDATE ip_flags SET pc_at='2000-01-01 00:00:00' WHERE ip='198.18.0.1'")
+        refused = _FakeProxycheck(None, 429, {"status": "denied", "message": "Your daily query limit has been exceeded."})
+        with pytest.raises(vpn.LookupFailed) as err:
+            vpn.lookup(conn, refused)
+        assert "exceeded" in str(err.value) and "pc-test-key" not in str(err.value)
+        assert err.value.retry > 3600 or err.value.retry == vpn.seconds_to_reset()
+        with pytest.raises(vpn.LookupFailed) as err:
+            vpn.lookup(conn, _FakeProxycheck(None, 500, {"status": "error", "message": "Down for maintenance."}))
+        assert err.value.retry == 3600
+
+        # attach: the latest IP's label, and other addresses that are VPNs
+        players = vpn.attach(conn, [dict(conn.execute("SELECT * FROM players WHERE steam_id='76561198000000902'").fetchone())])
+        assert players[0]["vpn"] is None          # only shown while VPN detection is on
+        db.set_setting(conn, "vpn_enabled", "1")
+        players = vpn.attach(conn, [dict(conn.execute("SELECT * FROM players WHERE steam_id=?", (s,)).fetchone())
+                                    for s in ("76561198000000902", "76561198000000903", "76561198000000904")])
+        assert players[0]["vpn"]["label"] == "Tor" and players[0]["vpn"]["source"] == "Tor exit list"
+        assert players[1]["vpn"]["kind"] == "host" and players[2]["vpn"]["title"] == "VPN: TestVPN · proxycheck.io, risk 50"
+        db.set_setting(conn, "vpn_enabled", "")
+        _vpn_reset(conn)
+
+
+def test_vpn_lookups_wait_for_the_lists(monkeypatch):
+    from fragdex import vpn
+    with db.get_db() as conn:
+        _vpn_reset(conn)
+        db.set_setting(conn, "proxycheck_key", "pc-test-key-0001")
+        assert vpn.lookup_paused(conn) == "waiting"
+        assert vpn.lookup(conn, _FakeProxycheck(lambda ip: {})) == (0, "paused")
+        u = _vpn_urls()
+        import httpx
+        monkeypatch.setattr(vpn, "_client", lambda: _FakeLists({url: httpx.ConnectError("down") for urls in u.values() for url in urls}))
+        vpn.refresh_base(conn)
+        assert vpn.lookup_paused(conn) == "no_lists"
+        p = vpn.panel(conn)
+        assert p["paused"] == "no_lists" and all(s["error"] for s in p["sources"] if s["on"])
+        db.set_setting(conn, "vpn_lookup_anyway", "1")
+        assert vpn.lookup_paused(conn) == ""
+        db.set_setting(conn, "vpn_lookup_anyway", "")
+        for s in ("x4b_vpn", "tor", "x4b_dc"):
+            vpn.set_source_enabled(conn, s, False)
+        assert vpn.lookup_paused(conn) == ""      # no lists chosen: nothing to wait for
+        _vpn_reset(conn)
+
+
+def test_vpn_pages_api_and_links(client):
+    from fragdex import vpn, worker
+    assert login(client).status_code == 303
+    a, b = "76561198000000931", "76561198000000932"
+    with db.get_db() as conn:
+        _vpn_reset(conn)
+        db.set_setting(conn, "vpn_sightings_mark", str(conn.execute("SELECT MAX(id) FROM sightings").fetchone()[0] or 0))
+        for s in ("x4b_vpn", "tor", "x4b_dc"):
+            vpn.set_source_enabled(conn, s, False)     # so the worker downloads nothing
+        _vpn_players(conn, [(a, "198.51.100.200", "2026-11-01 10:00:00"), (b, "198.51.100.200", "2026-11-01 11:00:00"),
+                            (a, "203.0.113.201", "2026-11-02 10:00:00")])
+        db.recompute_alts(conn)
+        assert conn.execute("SELECT alt_count FROM players WHERE steam_id=?", (a,)).fetchone()[0] == 1
+
+    page = client.get("/admin/settings")
+    assert 'id="vpn"' in page.text and "Turn on VPN detection" in page.text and "X4BNet VPN list" in page.text
+    assert client.get("/").text.count('class="c-vpn"') == 0      # off: no column
+    token = csrf_of(page.text)
+    r = client.post("/admin/vpn", data={"csrf": token, "enabled": "1", "no_links": "1", "budget": "500"})
+    assert r.status_code == 200 and "VPN detection is on" in r.text
+    assert client.post("/admin/vpn", data={"csrf": token, "enabled": "1", "budget": "lots"}).text.count("Enter the number") == 1
+    r = client.post("/admin/vpn/upload", data={"csrf": token, "kind": "vpn"},
+                    files={"file": ("vpns.txt", b"198.51.100.200\nnonsense\n", "text/plain")})
+    assert "Added 1 ranges as VPN. 1 lines weren" in r.text
+    with db.get_db() as conn:
+        db.set_setting(conn, "vpn_no_links", "1")
+        vpn.match(conn)
+        assert conn.execute("SELECT kind, via FROM ip_flags WHERE ip='198.51.100.200'").fetchone()[:] == ("vpn", "upload:vpn")
+        db.recompute_alts(conn)         # a VPN address no longer links the two
+        assert conn.execute("SELECT alt_count FROM players WHERE steam_id=?", (a,)).fetchone()[0] == 0
+        assert vpn.budget(conn) == 500
+
+    players = client.get("/?q=Vpn93").text
+    assert players.count('<th class="c-vpn">VPN</th>') == 1 and "Uses VPN" in players
+    # b's latest address is the VPN, so only b's row has a label; a's earlier VPN address isn't shown in the list
+    assert players.count('class="vpn-label vpn-vpn" title="VPN · Uploaded VPN list">VPN</span>') == 1
+    rows = {sid: row for sid, row in re.findall(r'href="/player/(\d+)".*?(<td class="c-vpn[^"]*">.*?</td>)', players, re.S)}
+    assert "vpn-label" in rows[b] and "vpn-label" not in rows[a] and 'class="c-vpn empty"' in rows[a]
+    assert "Vpn931" in client.get("/?vpn=1&q=Vpn93").text
+    profile = client.get(f"/player/{a}").text
+    assert "<th>VPN</th>" in profile and "A VPN address, ignored for linking" in profile
+    csv_text = client.get("/export.csv?q=Vpn932").text
+    assert csv_text.splitlines()[0].endswith(",vpn") and csv_text.splitlines()[1].endswith(",VPN")
+
+    key, _ = _create_key(client, name="VPN reader", can_ips="1")
+    d = _api(client, key, f"/players/{a}").json()
+    assert d["vpn"] is None and d["uses_vpn"] is True
+    assert [x["vpn"]["label"] if x["vpn"] else None for x in d["ips"]] == [None, "VPN"]
+    d = _api(client, key, "/players?vpn=1&q=Vpn93").json()
+    assert {p["steam_id"] for p in d["players"]} == {a, b}
+    assert next(p for p in d["players"] if p["steam_id"] == b)["vpn"] == {
+        "kind": "vpn", "label": "VPN", "provider": None, "source": "Uploaded VPN list"}
+
+    j = client.get("/admin/settings/vpn.json").json()
+    assert set(j) >= {"running", "state"}
+    page = client.get("/admin/settings").text
+    assert "Uploaded VPN list" in page and "Lookups a day" in page
+    r = client.post("/admin/vpn/upload/vpn/delete", data={"csrf": csrf_of(page)})
+    assert "Removed the uploaded VPN list" in r.text
+    r = client.post("/admin/vpn/key", data={"csrf": csrf_of(page), "proxycheck_key": "bad key!"})
+    assert "look like a proxycheck.io key" in r.text
+    worker._api_alts_dirty.clear()
+    r = client.post("/admin/vpn", data={"csrf": csrf_of(page), "budget": "900"})
+    assert "VPN detection is off" in r.text and worker._api_alts_dirty.is_set()
+    assert '<th class="c-vpn">' not in client.get("/").text
+    with db.get_db() as conn:
+        _vpn_reset(conn)

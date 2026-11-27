@@ -4,6 +4,22 @@ All notable changes to Fragdex. Versions follow [Semantic Versioning](https://se
 
 To update, see [Updating](https://d00msdaydevice.github.io/fragdex/administration/updating/). Existing databases are upgraded automatically when the new version starts.
 
+## 1.5.0 (2026-11-27)
+
+### Added
+
+- **VPN detection** (**Settings → VPN detection**, off until turned on). Addresses that are a VPN, a Tor exit, a proxy or a hosting network get a **VPN**, **Tor**, **Proxy** or **Host** label, separate from tags.
+    - The Players page has a **VPN** column between IP Address and History for the latest IP, and a **Uses VPN** filter. A player's IP addresses have a **VPN** column after Sources.
+    - Free lists of network ranges are downloaded every 7 days and matched on the server: X4BNet's VPN and datacenter lists and the Tor exit list by default, and optionally Mullvad's and NordVPN's server lists, the az0 VPN list and cloud providers' own lists. **Refresh base IPs** downloads them now, with a progress bar from the data received.
+    - A list that can't be downloaded, or arrives empty, cut short or over 50 MB, keeps the ranges it had and shows why. Lists can also be uploaded.
+    - Optional [proxycheck.io](https://proxycheck.io/) lookups (`PROXYCHECK_KEY` or the Settings page) for the addresses no list settles, within a daily limit. They wait for the lists, ask about one address per network first, and a VPN found on a hosting network labels its whole range, so its other addresses aren't looked up.
+    - An option to stop VPN, Tor and proxy addresses from linking accounts.
+- API: players have `vpn` and `uses_vpn`, each IP of a player has `vpn`, and `GET /players` takes `vpn=1`. CSV exports have a `vpn` column.
+
+### Changed
+
+- The Players table fits windows from 1100 px wide with its new column: cells have a little less padding, a FragQ link's **verified** or **claimed** sits under the Discord name, and a long Steam name wraps. Before, the last columns could run past the edge below about 1300 px.
+
 ## 1.4.2 (2026-11-24)
 
 ### Added

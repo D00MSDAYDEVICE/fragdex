@@ -20,6 +20,9 @@ Designed for flexibility and portability, Fragdex includes the `fragdex-scan` de
 - **Verified Steam IDs**: players seen in demos, logs or by a game server's plugin are marked,
   because those Steam IDs can't be typed in by someone else.
 - Sort by most aliases with the toggle in the History column header.
+- **VPN detection**: a VPN, Tor, Proxy or Host label next to each IP, from free downloaded lists
+  of network ranges matched on your server, plus optional proxycheck.io lookups for the rest.
+  A list that can't be downloaded keeps its last copy.
 - Optional Steam Web API enrichment: avatar, current Steam name, VAC/game bans, with
   live progress of the background refresh under Settings.
 - Notes and tags per player. Export any search as **CSV** (a summary row per player,

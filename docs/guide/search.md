@@ -32,6 +32,7 @@ The row under the search box narrows the list further. Drop-downs and check boxe
 | **Has Discord** | players with a Discord ID or username. |
 | **Verified Steam ID** | players whose Steam ID came from a demo, a log or a game server. See [Verified Steam IDs](../administration/fragq.md#verified-steam-ids). |
 | **Has linked accounts** | players who share an IP, or a Discord ID between verified Steam IDs, with another Steam ID. See [Linked accounts](linked-accounts.md). |
+| **Uses VPN** | players with any address that is a VPN, Tor exit or proxy. Only shown while [VPN detection](../administration/vpn.md) is on. |
 | **Last seen** from / to | players last seen within the date range. |
 | **50 / page** | 25, 50, 100 or 250 players per page. |
 
@@ -45,6 +46,7 @@ Filters combine with the search: `203.0.113.0/24` plus *Has linked accounts* plu
 | **Steam ID** | The SteamID64. The Steam icon opens the Steam profile in a new tab. |
 | **Discord** | The player's Discord username, if known, otherwise their user ID. Hover over a username to see the ID, and click to copy the ID. For a numeric ID the Discord icon opens their Discord profile. A link from [FragQ](../administration/fragq.md) is labelled **verified** or **claimed**. A dash means none is set. |
 | **IP Address** | The latest known IP. |
+| **VPN** | Whether the latest IP is a **VPN**, **Tor** exit, **Proxy** or **Host** (hosting network); hover to see the provider and where the label came from. Only the latest IP is labelled here: a player's earlier addresses are labelled on their [profile](player-profile.md), and **Uses VPN** finds players with any of them. Only shown while [VPN detection](../administration/vpn.md) is on. |
 | **History** | Small icons with counts. **Names**: other names the player used; **IPs**: every IP address they were seen on. Click either to see the list with dates. A highlighted **link** icon appears when the player has [linked accounts](linked-accounts.md); click it to jump to them. |
 | **Tags** | The player's tags. |
 | **Last seen** | Date of the most recent record. |

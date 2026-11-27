@@ -7,6 +7,7 @@
   <th class="{{ cls }}"><a href="?{{ filter_qs(f, sort=key, dir=next_dir, page=None) }}{{ '&per=' ~ per if per != 50 }}" class="{{ 'sorted' if is_cur }}">{{ label }}{% if is_cur %} {{ '▲' if cur_dir == 'asc' else '▼' }}{% endif %}</a></th>
 {%- endmacro %}
 {% block content %}
+{% from "_vpn.html" import vpn_label %}
 <div class="page-head">
   <div>
     <h1>Players</h1>
@@ -55,6 +56,7 @@
     <label class="check"><input type="checkbox" name="has_discord" value="1" data-autosubmit {{ 'checked' if f.has_discord }}>Has Discord</label>
     <label class="check"><input type="checkbox" name="verified" value="1" data-autosubmit {{ 'checked' if f.verified }}>Verified Steam ID</label>
     <label class="check"><input type="checkbox" name="has_alts" value="1" data-autosubmit {{ 'checked' if f.has_alts }}>Has linked accounts</label>
+    {% if vpn_on %}<label class="check" title="Players with any address that is a VPN, Tor or a proxy"><input type="checkbox" name="vpn" value="1" data-autosubmit {{ 'checked' if f.vpn }}>Uses VPN</label>{% endif %}
     <span class="sep"></span>
     <span class="daterange">Last seen
       <input type="date" name="seen_from" value="{{ f.seen_from }}" aria-label="Last seen from">
@@ -85,6 +87,7 @@
       {{ sort_th('steam_id', 'Steam ID') }}
       {{ sort_th('discord', 'Discord') }}
       <th>IP Address{% include "_ip_toggle.html" %}</th>
+      {% if vpn_on %}<th class="c-vpn">VPN</th>{% endif %}
       {% set by_aliases = f.sort == 'aliases' %}
       <th>History<a class="th-toggle" href="?{{ filter_qs(f, sort=None if by_aliases else 'aliases', dir=None if by_aliases else 'desc', page=None) }}{{ '&per=' ~ per if per != 50 }}" aria-pressed="{{ 'true' if by_aliases else 'false' }}" title="{{ 'Back to newest first' if by_aliases else 'Sort by most aliases' }}" aria-label="Sort by most aliases"><svg class="i"><use href="#i-sort-desc"/></svg></a></th>
       <th>Tags</th>
@@ -113,6 +116,7 @@
       </td>
       <td class="c-discord{{ ' empty' if not p.discord_id }}">{% if p.discord_id %}<span class="sid">{% if discord_url(p.discord_id) %}<a class="discord-link" href="{{ discord_url(p.discord_id) }}" target="_blank" rel="noopener noreferrer" title="Open Discord profile"><svg class="i"><use href="#i-discord"/></svg></a>{% else %}<span class="discord-link" title="Discord username"><svg class="i"><use href="#i-discord"/></svg></span>{% endif %}<button type="button" class="discord-copy" data-copy="{{ p.discord_id }}" title="{{ 'Discord ID ' ~ p.discord_id ~ ': click to copy' if p.discord_name else 'Click to copy' }}">{% if p.discord_name %}<span class="discord-name">{{ p.discord_name }}</span>{% else %}<code>{{ p.discord_id }}</code>{% endif %}<svg class="i"><use href="#i-copy"/></svg></button>{% if p.discord_status %}<span class="link-status link-{{ p.discord_status }}" title="{{ 'Proved to FragQ: this Steam account belongs to this Discord account' if p.discord_status == 'verified' else 'Typed into FragQ: nothing proves the Steam account is theirs' }}">{{ p.discord_status }}</span>{% endif %}</span>{% else %}<span class="faint">—</span>{% endif %}</td>
       <td class="c-ip">{% if p.last_ip %}<span class="ip">{{ p.last_ip }}</span>{% else %}<span class="faint">—</span>{% endif %}</td>
+      {% if vpn_on %}<td class="c-vpn{{ ' empty' if not p.vpn }}">{% if p.vpn %}{{ vpn_label(p.vpn) }}{% else %}<span class="faint">—</span>{% endif %}</td>{% endif %}
       <td class="c-icons">
         <div class="icons">
           {% set other_names = p.names|rejectattr('name', 'equalto', p.last_name)|list %}

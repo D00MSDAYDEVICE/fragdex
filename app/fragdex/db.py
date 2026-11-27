@@ -170,6 +170,45 @@ CREATE TABLE IF NOT EXISTS fragq_links(
     PRIMARY KEY(connection_id, steam_id)
 );
 CREATE INDEX IF NOT EXISTS fragq_links_steam ON fragq_links(steam_id);
+
+-- VPN detection (vpn.py). Network ranges from the base lists, uploads and proxycheck answers. Addresses are 16 bytes,
+-- IPv4 as ::ffff:a.b.c.d, so IPv4 and IPv6 compare in one column. Ranges of one source never overlap.
+CREATE TABLE IF NOT EXISTS ip_ranges(
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL,                     -- a base list's id, upload:<kind> or proxycheck
+    kind TEXT NOT NULL,                       -- vpn, tor, proxy or host
+    first BLOB NOT NULL,
+    last BLOB NOT NULL,
+    cidr TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT '',
+    added_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ip_ranges_first ON ip_ranges(source, first);
+-- one row per recorded IP address, with its label and what gave it
+CREATE TABLE IF NOT EXISTS ip_flags(
+    ip TEXT PRIMARY KEY,
+    bin BLOB NOT NULL,
+    kind TEXT NOT NULL DEFAULT '',            -- vpn, tor, proxy, host; '' = nothing known
+    provider TEXT NOT NULL DEFAULT '',
+    via TEXT NOT NULL DEFAULT '',             -- the source that gave the label
+    matched INTEGER NOT NULL DEFAULT 0,       -- 0 = not matched against the current ranges yet
+    pc_kind TEXT,                             -- proxycheck's own answer for this address; NULL = never asked
+    pc_provider TEXT NOT NULL DEFAULT '',
+    pc_risk INTEGER,
+    pc_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ip_flags_bin ON ip_flags(bin);
+CREATE INDEX IF NOT EXISTS ip_flags_kind ON ip_flags(kind);
+CREATE INDEX IF NOT EXISTS ip_flags_matched ON ip_flags(matched);
+-- each VPN list's last result
+CREATE TABLE IF NOT EXISTS ip_sources(
+    id TEXT PRIMARY KEY,
+    enabled INTEGER,                          -- NULL = the list's default
+    ranges INTEGER NOT NULL DEFAULT 0,
+    loaded_at TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    error_at TEXT NOT NULL DEFAULT ''
+);
 """
 
 # demos and server logs come from the game itself, so the Steam IDs in them can't be typed in by someone
@@ -178,6 +217,21 @@ VERIFIED_SOURCES = ("demo", "log")
 
 def now():
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+IPV4_PREFIX = bytes(10) + bytes((255, 255))
+
+
+def ip_bytes(addr):
+    """An ipaddress address as 16 bytes that sort in address order; IPv4 as ::ffff:a.b.c.d."""
+    return IPV4_PREFIX + addr.packed if addr.version == 4 else addr.packed
+
+
+def _ip_bin(ip):
+    try:
+        return ip_bytes(ipaddress.ip_address(ip))
+    except (ValueError, TypeError):
+        return None
 
 
 def _ip_in(ip, net):
@@ -195,6 +249,7 @@ def connect():
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
     conn.create_function("ip_in", 2, _ip_in, deterministic=True)
+    conn.create_function("ip_bin", 1, _ip_bin, deterministic=True)
     return conn
 
 
@@ -376,13 +431,20 @@ def mark_api_records(conn, key_names, verified):
     refresh_players(conn, sids)
 
 
-def shared_ips_clause():
+def vpn_unlinked(conn):
+    """VPN detection is on and set so that VPN, Tor and proxy addresses don't link accounts."""
+    return get_setting(conn, "vpn_enabled") == "1" and get_setting(conn, "vpn_no_links") == "1"
+
+
+def shared_ips_clause(conn):
     """SQL fragment: IPs that count for alt-account linking."""
     limit = config.ALT_IP_MAX_ACCOUNTS
     having = "COUNT(DISTINCT steam_id) > 1"
     if limit > 0:
         having += f" AND COUNT(DISTINCT steam_id) <= {int(limit)}"
-    return f"SELECT ip FROM sightings WHERE ip != '' GROUP BY ip HAVING {having}"
+    skip = (" AND ip NOT IN (SELECT ip FROM ip_flags WHERE kind IN ('tor','proxy','vpn'))"
+            if vpn_unlinked(conn) else "")
+    return f"SELECT ip FROM sightings WHERE ip != ''{skip} GROUP BY ip HAVING {having}"
 
 
 # a Discord user ID; a username typed in by hand isn't unique enough to link accounts by
@@ -400,7 +462,7 @@ def same_discord_groups(conn):
 def recompute_alts(conn):
     by_ip = defaultdict(set)
     for row in conn.execute(
-            f"SELECT DISTINCT ip, steam_id FROM sightings WHERE ip IN ({shared_ips_clause()})"):
+            f"SELECT DISTINCT ip, steam_id FROM sightings WHERE ip IN ({shared_ips_clause(conn)})"):
         by_ip[row["ip"]].add(row["steam_id"])
     alts = defaultdict(set)
     for ids in [*by_ip.values(), *same_discord_groups(conn)]:
@@ -500,6 +562,9 @@ def build_filter(f, ips=True, notes=True):
         where.append("p.steam_verified = 1")
     if f.get("has_alts"):
         where.append("p.alt_count > 0")
+    if f.get("vpn"):
+        where.append("p.steam_id IN (SELECT s.steam_id FROM sightings s JOIN ip_flags v ON v.ip = s.ip"
+                     " WHERE v.kind IN ('tor','proxy','vpn'))")
     bans = f.get("bans")
     if bans == "vac":
         where.append("COALESCE(p.vac_bans, 0) > 0")
@@ -561,7 +626,7 @@ def linked_accounts(conn, steam_id):
         FROM sightings s1
         JOIN sightings s2 ON s2.ip = s1.ip AND s2.steam_id != s1.steam_id
         JOIN players p ON p.steam_id = s2.steam_id
-        WHERE s1.steam_id = ? AND s1.ip != '' AND s1.ip IN ({shared_ips_clause()})
+        WHERE s1.steam_id = ? AND s1.ip != '' AND s1.ip IN ({shared_ips_clause(conn)})
         GROUP BY s2.steam_id""", (steam_id,))}
     me = conn.execute(f"SELECT discord_id FROM players WHERE steam_id = ? AND steam_verified = 1 AND {DISCORD_ID_SQL}",
                       (steam_id,)).fetchone()

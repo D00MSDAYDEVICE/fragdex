@@ -1,4 +1,4 @@
-"""Background threads: import queue, watched folder scanner, Steam and Discord refreshers."""
+"""Background threads: import queue, watched folder scanner, Steam and Discord refreshers, VPN detection."""
 import hashlib
 import logging
 import os
@@ -7,7 +7,7 @@ import threading
 import time
 import traceback
 
-from . import apikeys, config, db, discord_users, fragq, steam
+from . import apikeys, config, db, discord_users, fragq, steam, vpn
 from .importers.common import file_kind
 from .importers.demo import parse_demo
 from .importers.export import read_export
@@ -19,11 +19,17 @@ _wake = threading.Event()
 _steam_wake = threading.Event()
 _discord_wake = threading.Event()
 _fragq_wake = threading.Event()
+_vpn_wake = threading.Event()
+_vpn_refresh = threading.Event()   # download the base lists on the next run, whenever they were last downloaded
+_vpn_only = set()                  # ...only these lists; empty = all of them
+_vpn_lock = threading.Lock()
 _started = False
 # steam_state: idle | running | error | nokey;  steam_batch_secs: smoothed time per 100-player batch
 status = {"watch_last_scan": None, "watch_error": None, "steam_last_run": None, "steam_state": "idle",
           "steam_batch_secs": None, "steam_next_run": None, "discord_state": "idle", "discord_last_run": None,
-          "fragq_state": "idle", "fragq_started": None, "fragq_progress": None}
+          "fragq_state": "idle", "fragq_started": None, "fragq_progress": None,
+          # vpn_state: off | idle | refreshing | matching | looking_up
+          "vpn_state": "off", "vpn_started": None, "vpn_progress": None, "vpn_lookup": "", "vpn_next_lookup": None}
 
 
 def wake():
@@ -40,6 +46,18 @@ def wake_discord():
 
 def wake_fragq():
     _fragq_wake.set()
+
+
+def wake_vpn(refresh=False, only=None):
+    """Run VPN detection now. refresh=True also downloads the base lists again: only those in `only`, or all."""
+    if refresh:
+        with _vpn_lock:
+            if only and (_vpn_only or not _vpn_refresh.is_set()):
+                _vpn_only.update(only)
+            else:
+                _vpn_only.clear()   # all of them
+            _vpn_refresh.set()
+    _vpn_wake.set()
 
 
 # Records added through the API arrive in small batches all the time; linked accounts are recalculated
@@ -430,6 +448,67 @@ def fragq_sync():
         _fragq_wake.clear()
 
 
+def _vpn_report(**progress):
+    status["vpn_progress"] = progress
+
+
+def _vpn_run(conn):
+    """One pass: base lists when due, new addresses, matching, then one batch of proxycheck lookups.
+    Returns the seconds to wait before the next pass."""
+    due = vpn.base_due(conn)
+    if _vpn_refresh.is_set() or due:
+        with _vpn_lock:
+            only = None if due or not _vpn_only else set(_vpn_only)
+            _vpn_only.clear()
+            _vpn_refresh.clear()
+        status.update(vpn_state="refreshing", vpn_started=time.time(), vpn_progress=None)
+        vpn.refresh_base(conn, _vpn_report, only)
+        vpn.forget_unrecorded(conn)
+    vpn.add_new_addresses(conn)
+    vpn.expire_ranges(conn)
+    waiting = conn.execute("SELECT COUNT(*) FROM ip_flags WHERE matched=0").fetchone()[0]
+    if waiting:
+        # a few new addresses are matched in a moment; only a big batch shows a progress bar
+        if status["vpn_state"] != "refreshing" and waiting > 500:
+            status.update(vpn_state="matching", vpn_started=time.time(), vpn_progress=None)
+        if vpn.match(conn, _vpn_report) and db.vpn_unlinked(conn):
+            links_changed()
+    status.update(vpn_state="looking_up", vpn_progress=None)
+    wait = status["vpn_next_lookup"]
+    if wait and time.time() < wait:
+        return min(300, wait - time.time())
+    try:
+        asked, state = vpn.lookup(conn)
+    except vpn.LookupFailed as e:
+        log.warning("proxycheck lookup failed: %s", e)
+        db.set_setting(conn, "vpn_lookup_error", f"{db.now()}: {e}"[:300])
+        status.update(vpn_lookup="error", vpn_next_lookup=time.time() + e.retry)
+        return 300
+    status.update(vpn_lookup=state, vpn_next_lookup=None)
+    if state == "budget":
+        status["vpn_next_lookup"] = time.time() + vpn.seconds_to_reset()
+    return 2 if asked else 300
+
+
+def vpn_detection():
+    while True:
+        delay = 3600
+        try:
+            with db.get_db() as conn:
+                if vpn.enabled(conn):
+                    delay = _vpn_run(conn)
+                else:
+                    status["vpn_state"] = "off"
+        except Exception:  # noqa: BLE001 - keep the thread alive
+            log.warning("VPN detection failed: %s", traceback.format_exc())
+            delay = 300
+        finally:
+            if status["vpn_state"] != "off":
+                status.update(vpn_state="idle", vpn_progress=None)
+        _vpn_wake.wait(delay)
+        _vpn_wake.clear()
+
+
 def steam_refresher():
     last_batch = None
     while True:
@@ -478,5 +557,5 @@ def start():
     if _started:
         return
     _started = True
-    for target in (import_worker, watcher, steam_refresher, discord_refresher, fragq_sync):
+    for target in (import_worker, watcher, steam_refresher, discord_refresher, fragq_sync, vpn_detection):
         threading.Thread(target=target, name=target.__name__, daemon=True).start()
