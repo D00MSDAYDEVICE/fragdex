@@ -294,9 +294,9 @@
 
     <dl class="kv vpn-coverage">
       <dt>Addresses</dt><dd>{{ "{:,}".format(vp.total) }}{% if vp.unmatched %} <span class="muted">({{ "{:,}".format(vp.unmatched) }} waiting to be matched)</span>{% endif %}</dd>
-      <dt>Settled by the lists</dt><dd>{{ "{:,}".format(vp.anon) }} VPN, Tor or proxy · {{ "{:,}".format(vp.host) }} hosting</dd>
+      <dt>Found by the lists</dt><dd>{{ "{:,}".format(vp.anon) }} VPN, Tor or proxy · {{ "{:,}".format(vp.host) }} hosting</dd>
       <dt>Looked up</dt><dd>{{ "{:,}".format(vp.checked) }} on proxycheck.io{% if vp.key_set %} · {{ "{:,}".format(vp.used) }} of {{ "{:,}".format(vp.budget) }} today{% endif %}</dd>
-      <dt>Left to look up</dt><dd>{{ "{:,}".format(vp.left) }}{% if vp.left and vp.key_set and vp.budget %} <span class="muted">· about {{ vp.days }} day{{ '' if vp.days == 1 else 's' }} at {{ "{:,}".format(vp.budget) }} a day</span>{% endif %}</dd>
+      <dt>Left to look up</dt><dd>{{ "{:,}".format(vp.left_other) }}{% if vp.left_host %} <span class="muted">+ {{ "{:,}".format(vp.left_host) }} hosting, looked up last</span>{% endif %}{% if vp.left and vp.key_set and vp.budget %} <span class="muted">· about {{ vp.days }} day{{ '' if vp.days == 1 else 's' }} at {{ "{:,}".format(vp.budget) }} a day</span>{% endif %}</dd>
     </dl>
     {% if vp.paused == 'no_lists' %}
     <div class="flash flash-warn">None of the base lists could be loaded, so lookups are paused rather than spent on addresses a list would cover. Refresh base IPs to try again.

@@ -81,9 +81,9 @@ The panel shows how far it has got:
 | Line | Shows |
 |---|---|
 | Addresses | Every address in the records. |
-| Settled by the lists | How many are VPN, Tor or proxy, and how many are hosting. |
+| Found by the lists | How many are VPN, Tor or proxy, and how many are hosting. |
 | Looked up | Addresses proxycheck.io has answered for, and today's lookups out of the daily limit. |
-| Left to look up | Addresses no list or answer settles yet, and about how many days that takes at your daily limit. |
+| Left to look up | Addresses no list or answer settles yet, then the hosting addresses, which are looked up last (unless **Don't look up hosting addresses** is ticked), and about how many days all of them take at your daily limit. |
 
 If proxycheck.io can't be reached or refuses a lookup, its reason shows in the panel and Fragdex tries again later: after an hour, or when proxycheck.io's day starts again if the daily limit ran out. Labels found so far are kept.
 

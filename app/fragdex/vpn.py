@@ -689,15 +689,18 @@ def panel(conn):
                          SUM(kind = 'host') host,
                          SUM(pc_at IS NOT NULL) checked,
                          SUM(matched = 0) unmatched,
-                         SUM(pc_at IS NULL AND kind NOT IN {ANON_SQL}{" AND kind != 'host'" if skip_host(conn) else ""}) left_
+                         SUM(pc_at IS NULL AND kind = '') left_other,
+                         SUM(pc_at IS NULL AND kind = 'host') left_host
                          FROM ip_flags""").fetchone()
     key = proxycheck_key(conn)
     daily = budget(conn)
-    left = c["left_"] or 0
+    # hosting addresses are looked up last, or not at all with "Don't look up hosting addresses"
+    left_host = 0 if skip_host(conn) else c["left_host"] or 0
+    left = (c["left_other"] or 0) + left_host
     return dict(on=enabled(conn), sources=sources, key_set=bool(key), key_from_env=bool(config.PROXYCHECK_KEY_ENV),
                 key_hint="…" + key[-4:] if key else "", budget=daily, used=used_today(conn), skip_host=skip_host(conn),
                 no_links=db.get_setting(conn, "vpn_no_links") == "1", base_at=db.get_setting(conn, "vpn_base_at"),
                 paused=lookup_paused(conn), lookup_error=db.get_setting(conn, "vpn_lookup_error"),
                 total=c["total"] or 0, anon=c["anon"] or 0, host=c["host"] or 0, checked=c["checked"] or 0,
-                unmatched=c["unmatched"] or 0, left=left, days=-(-left // daily) if daily and left else 0,
+                unmatched=c["unmatched"] or 0, left=left, left_other=c["left_other"] or 0, left_host=left_host, days=-(-left // daily) if daily and left else 0,
                 labels=LABELS)

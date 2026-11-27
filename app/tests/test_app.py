@@ -1485,6 +1485,9 @@ def test_vpn_matching_and_lookups(monkeypatch):
         assert kinds == {"198.51.100.10": "vpn", "192.0.2.9": "tor", "192.0.2.50": "host", "203.0.113.70": "",
                          "2001:db8:aa::5": "vpn"}
 
+        p = vpn.panel(conn)     # hosting addresses are counted apart, since they're looked up last
+        assert (p["total"], p["anon"], p["host"], p["left_other"], p["left_host"], p["left"]) == (7, 3, 1, 3, 1, 4)
+
         # no key: nothing is asked
         assert vpn.lookup(conn) == (0, "nokey")
         db.set_setting(conn, "proxycheck_key", "pc-test-key-0001")
@@ -1492,6 +1495,7 @@ def test_vpn_matching_and_lookups(monkeypatch):
         assert vpn.queue(conn, 10) == ["203.0.113.70", "198.18.0.1", "192.0.2.50"]
         db.set_setting(conn, "vpn_skip_host", "1")
         assert vpn.queue(conn, 10) == ["203.0.113.70", "198.18.0.1"]
+        assert (vpn.panel(conn)["left_host"], vpn.panel(conn)["left"]) == (0, 3)
 
         def answer(ip):
             if ip == "203.0.113.70":
